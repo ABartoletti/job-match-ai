@@ -3,6 +3,8 @@ import mammoth from "mammoth";
 import OpenAI from "openai";
 import { PDFParse } from "pdf-parse";
 
+export const runtime = "nodejs";
+
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
   [/data engineer|analytics engineer/i, "Data Engineer"],
@@ -377,33 +379,6 @@ function extractTextFromRawPdf(buffer: Buffer) {
   return Array.from(fragments).join("\n").trim();
 }
 
-async function extractTextWithPdfJs(buffer: Buffer) {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const loadingTask = getDocument({ data: new Uint8Array(buffer), useWorkerFetch: false });
-  const pdf = await loadingTask.promise;
-  const pageTexts: string[] = [];
-
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (text) {
-      pageTexts.push(text);
-    }
-
-    page.cleanup();
-  }
-
-  await loadingTask.destroy();
-
-  return pageTexts.join("\n\n").trim();
-}
-
 function buildAnalysisPrompt(cvText: string) {
   return [
     "Analiza el CV y devuelve solo JSON válido con estas claves exactas:",
@@ -597,16 +572,6 @@ async function extractTextFromBuffer(fileName: string, buffer: Buffer) {
       }
     } catch {
       // Fall through to the alternate PDF extractor below.
-    }
-
-    try {
-      const fallbackText = await extractTextWithPdfJs(buffer);
-
-      if (fallbackText) {
-        return fallbackText;
-      }
-    } catch {
-      // Fall through to the raw-PDF text extractor below.
     }
 
     const rawPdfText = extractTextFromRawPdf(buffer);

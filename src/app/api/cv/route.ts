@@ -6,11 +6,11 @@ import { PDFParse } from "pdf-parse";
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
   [/data engineer|analytics engineer/i, "Data Engineer"],
-  [/qa automation|automation qa|sdet/i, "QA Automation"],
-  [/quality assurance|qa analyst|tester/i, "QA Analyst"],
-  [/frontend|front end|react/i, "Frontend Developer"],
-  [/backend|back end|node/i, "Backend Developer"],
-  [/full stack|fullstack/i, "Full Stack Developer"],
+  [/qa automation|automation qa|sdet|test automation|automation tester|automation engineer/i, "QA Automation"],
+  [/quality assurance|qa analyst|qa engineer|manual qa|software tester|tester/i, "QA Analyst"],
+  [/frontend|front end|react|ui developer/i, "Frontend Developer"],
+  [/backend|back end|node|api developer/i, "Backend Developer"],
+  [/full stack|fullstack|software engineer|software developer/i, "Full Stack Developer"],
   [/product manager|product owner/i, "Product Manager"],
   [/project manager|scrum master/i, "Project Manager"],
   [/ux designer|ui designer|product designer/i, "UX/UI Designer"],
@@ -95,6 +95,10 @@ const skillDictionary = [
   "Test Automation",
   "REST API",
   "Agile",
+  "APIs",
+  "Pytest",
+  "GitLab",
+  "Kanban",
 ];
 
 type CvExperience = {
@@ -256,6 +260,36 @@ function detectTotalYears(text: string) {
   return values.length ? Math.max(...values) : null;
 }
 
+function inferRoleFromSignals(text: string, skills: string[]) {
+  const normalizedSkills = skills.map((skill) => skill.toLowerCase());
+
+  if (
+    /qa|quality assurance|sdet|tester|testing/i.test(text) ||
+    normalizedSkills.some((skill) => ["selenium", "cypress", "playwright", "postman", "api testing", "test automation", "manual testing"].includes(skill))
+  ) {
+    return normalizedSkills.some((skill) => ["selenium", "cypress", "playwright", "test automation"].includes(skill))
+      ? "QA Automation"
+      : "QA Analyst";
+  }
+
+  if (
+    /data|business intelligence|analytics|reporting/i.test(text) ||
+    normalizedSkills.some((skill) => ["sql", "power bi", "tableau", "looker", "excel"].includes(skill))
+  ) {
+    return "Data Analyst";
+  }
+
+  if (normalizedSkills.some((skill) => ["react", "next.js", "html", "css", "tailwind"].includes(skill))) {
+    return "Frontend Developer";
+  }
+
+  if (normalizedSkills.some((skill) => ["node.js", "postgresql", "mysql", "mongodb", "docker"].includes(skill))) {
+    return "Backend Developer";
+  }
+
+  return "";
+}
+
 function parseCvText(text: string): CvProfile {
   const normalizedText = text.replace(/\s+/g, " ");
   const lines = getLines(text);
@@ -264,9 +298,10 @@ function parseCvText(text: string): CvProfile {
   const education = extractListSection(lines, [/^educaci[oó]n/i, /^education/i]);
   const certifications = extractListSection(lines, [/^certificaciones/i, /^certifications/i, /^certificates/i]);
   const headline = lines.find((line) => line.length > 8 && line.length < 120) || "";
+  const detectedRole = extractValue(rolePatterns, normalizedText, "") || inferRoleFromSignals(normalizedText, skills);
 
   return {
-    role: extractValue(rolePatterns, normalizedText, ""),
+    role: detectedRole,
     location: extractValue(locationPatterns, normalizedText, ""),
     workMode: extractValue(workModePatterns, normalizedText, "Cualquiera"),
     seniority: extractValue(seniorityPatterns, normalizedText, ""),
@@ -276,7 +311,7 @@ function parseCvText(text: string): CvProfile {
     summary: lines.slice(0, 5).join(" ").slice(0, 700),
     totalYears: detectTotalYears(normalizedText),
     currentRole: experiences[0]?.title || "",
-    targetRole: extractValue(rolePatterns, normalizedText, ""),
+    targetRole: detectedRole,
     experiences,
     skillGroups: categorizeSkills(skills),
     education,

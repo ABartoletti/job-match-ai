@@ -95,11 +95,11 @@ const emptySkillGroups: CvSkillGroups = {
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
   [/data engineer|analytics engineer/i, "Data Engineer"],
-  [/qa automation|automation qa|sdet/i, "QA Automation"],
-  [/quality assurance|qa analyst|tester/i, "QA Analyst"],
-  [/frontend|front end|react/i, "Frontend Developer"],
-  [/backend|back end|node/i, "Backend Developer"],
-  [/full stack|fullstack/i, "Full Stack Developer"],
+  [/qa automation|automation qa|sdet|test automation|automation tester|automation engineer/i, "QA Automation"],
+  [/quality assurance|qa analyst|qa engineer|manual qa|software tester|tester/i, "QA Analyst"],
+  [/frontend|front end|react|ui developer/i, "Frontend Developer"],
+  [/backend|back end|node|api developer/i, "Backend Developer"],
+  [/full stack|fullstack|software engineer|software developer/i, "Full Stack Developer"],
   [/product manager|product owner/i, "Product Manager"],
   [/project manager|scrum master/i, "Project Manager"],
   [/ux designer|ui designer|product designer/i, "UX/UI Designer"],
@@ -190,6 +190,10 @@ const skillDictionary = [
   "Test Automation",
   "REST API",
   "Agile",
+  "APIs",
+  "Pytest",
+  "GitLab",
+  "Kanban",
 ];
 
 function parseSkills(skills: string) {
@@ -334,12 +338,44 @@ function extractSkills(text: string) {
   return "";
 }
 
+function inferRoleFromSignals(text: string, skills: string[]) {
+  const normalizedSkills = skills.map((skill) => skill.toLowerCase());
+
+  if (
+    /qa|quality assurance|sdet|tester|testing/i.test(text) ||
+    normalizedSkills.some((skill) => ["selenium", "cypress", "playwright", "postman", "api testing", "test automation", "manual testing"].includes(skill))
+  ) {
+    return normalizedSkills.some((skill) => ["selenium", "cypress", "playwright", "test automation"].includes(skill))
+      ? "QA Automation"
+      : "QA Analyst";
+  }
+
+  if (
+    /data|business intelligence|analytics|reporting/i.test(text) ||
+    normalizedSkills.some((skill) => ["sql", "power bi", "tableau", "looker", "excel"].includes(skill))
+  ) {
+    return "Data Analyst";
+  }
+
+  if (normalizedSkills.some((skill) => ["react", "next.js", "html", "css", "tailwind"].includes(skill))) {
+    return "Frontend Developer";
+  }
+
+  if (normalizedSkills.some((skill) => ["node.js", "postgresql", "mysql", "mongodb", "docker"].includes(skill))) {
+    return "Backend Developer";
+  }
+
+  return "";
+}
+
 function parseCvText(text: string): CvProfile {
   const normalizedText = text.replace(/\s+/g, " ");
   const skills = extractSkills(normalizedText) || initialFilters.skills;
+  const skillList = parseSkills(skills);
+  const detectedRole = extractValue(rolePatterns, normalizedText, initialFilters.role) || inferRoleFromSignals(normalizedText, skillList);
 
   return {
-    role: extractValue(rolePatterns, normalizedText, initialFilters.role),
+    role: detectedRole,
     location: extractValue(locationPatterns, normalizedText, initialFilters.location),
     workMode: normalizedText.match(/remote|remoto/i)
       ? "Remoto"
@@ -358,7 +394,7 @@ function parseCvText(text: string): CvProfile {
     summary: normalizedText.slice(0, 700),
     totalYears: null,
     currentRole: "",
-    targetRole: extractValue(rolePatterns, normalizedText, initialFilters.role),
+    targetRole: detectedRole,
     experiences: [],
     skillGroups: emptySkillGroups,
     education: [],
@@ -374,7 +410,20 @@ function parseCvText(text: string): CvProfile {
 }
 
 function profileHasData(profile: CvProfile) {
-  return Boolean(profile.role || profile.location || profile.seniority || profile.skills || profile.language !== "No especificado");
+  return Boolean(
+    profile.role ||
+      profile.targetRole ||
+      profile.currentRole ||
+      profile.location ||
+      profile.seniority ||
+      profile.skills ||
+      profile.headline ||
+      profile.summary ||
+      profile.experiences?.length ||
+      profile.evidence?.length ||
+      profile.rawCvText ||
+      profile.language !== "No especificado",
+  );
 }
 
 function buildCvDraft(builder: CvBuilderState, profile: CvProfile) {
@@ -577,7 +626,7 @@ export default function Home() {
       normalizeProfile({
         ...detectedProfile,
         ...filters,
-        role: filters.role || detectedProfile.role,
+        role: filters.role || detectedProfile.targetRole || detectedProfile.role || detectedProfile.currentRole || "",
         location: filters.location || detectedProfile.location,
         workMode: filters.workMode === "Cualquiera" ? detectedProfile.workMode || filters.workMode : filters.workMode,
         seniority: filters.seniority || detectedProfile.seniority,
@@ -596,7 +645,7 @@ export default function Home() {
     setDetectedProfile(normalizedProfile);
     setFilters((current) => ({
       ...current,
-      role: current.role || normalizedProfile.role,
+      role: current.role || normalizedProfile.targetRole || normalizedProfile.role || normalizedProfile.currentRole || "",
       location: current.location || normalizedProfile.location,
       workMode: current.workMode === "Cualquiera" ? normalizedProfile.workMode || current.workMode : current.workMode,
       seniority: current.seniority || normalizedProfile.seniority,

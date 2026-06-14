@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { createRequire } from "node:module";
 import mammoth from "mammoth";
 import OpenAI from "openai";
-import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
+
+const requirePdfParser = createRequire(import.meta.url);
 
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
@@ -143,6 +145,12 @@ type CvAnalysisResult = {
   profile: CvProfile;
   source: "openai" | "heuristic";
 };
+
+type PdfParseResult = {
+  text?: string;
+};
+
+type PdfParseFunction = (buffer: Buffer) => Promise<PdfParseResult>;
 
 function extractValue(patterns: Array<[RegExp, string]>, text: string, fallback: string) {
   const match = patterns.find(([pattern]) => pattern.test(text));
@@ -379,6 +387,12 @@ function extractTextFromRawPdf(buffer: Buffer) {
   return Array.from(fragments).join("\n").trim();
 }
 
+async function extractTextWithPdfParse(buffer: Buffer) {
+  const pdfParse = requirePdfParser("pdf-parse") as PdfParseFunction;
+  const result = await pdfParse(buffer);
+  return typeof result.text === "string" ? result.text : "";
+}
+
 function buildAnalysisPrompt(cvText: string) {
   return [
     "Analiza el CV y devuelve solo JSON válido con estas claves exactas:",
@@ -561,14 +575,11 @@ async function extractTextFromBuffer(fileName: string, buffer: Buffer) {
 
   if (lowerName.endsWith(".pdf")) {
     try {
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      const text = result.text.replace(/\s+/g, " ").trim();
-
-      await parser.destroy();
+      const parsedText = await extractTextWithPdfParse(buffer);
+      const text = parsedText.replace(/\s+/g, " ").trim();
 
       if (text) {
-        return result.text;
+        return parsedText;
       }
     } catch {
       // Fall through to the alternate PDF extractor below.

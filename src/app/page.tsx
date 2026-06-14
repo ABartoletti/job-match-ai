@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 type SearchFilters = {
   role: string;
@@ -18,6 +18,7 @@ type SearchSuggestion = {
   match: string;
   score: number;
   note: string;
+  group: string;
 };
 
 type CvProfile = {
@@ -48,20 +49,26 @@ type CvBuilderState = {
 };
 
 const initialFilters: SearchFilters = {
-  role: "Data Analyst",
-  location: "Buenos Aires, Argentina",
-  workMode: "Remoto",
-  seniority: "Semi Senior",
-  skills: "SQL, Power BI, Excel",
+  role: "",
+  location: "",
+  workMode: "Cualquiera",
+  seniority: "",
+  skills: "",
   language: "No especificado",
 };
 
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
+  [/data engineer|analytics engineer/i, "Data Engineer"],
   [/qa automation|automation qa|sdet/i, "QA Automation"],
+  [/quality assurance|qa analyst|tester/i, "QA Analyst"],
   [/frontend|front end|react/i, "Frontend Developer"],
   [/backend|back end|node/i, "Backend Developer"],
+  [/full stack|fullstack/i, "Full Stack Developer"],
   [/product manager|product owner/i, "Product Manager"],
+  [/project manager|scrum master/i, "Project Manager"],
+  [/ux designer|ui designer|product designer/i, "UX/UI Designer"],
+  [/devops|site reliability|sre/i, "DevOps Engineer"],
   [/data scientist|machine learning|ml engineer/i, "Data Scientist"],
 ];
 
@@ -92,8 +99,8 @@ const languagePatterns: Array<[RegExp, string]> = [
   [/(portuguese|portugu[eé]s)[^.;,\n]{0,40}(basic|b[aá]sico|a1|a2)|(basic|b[aá]sico|a1|a2)[^.;,\n]{0,40}(portuguese|portugu[eé]s)/i, "Portugués básico"],
 ];
 
-const workModeOptions = ["Remoto", "Hibrido", "Presencial", "Cualquiera"];
-const seniorityOptions = ["Trainee", "Junior", "Semi Senior", "Senior", "Lead"];
+const workModeOptions = ["Cualquiera", "Remoto", "Hibrido", "Presencial"];
+const seniorityOptions = ["", "Trainee", "Junior", "Semi Senior", "Senior", "Lead"];
 const languageOptions = [
   "No especificado",
   "Inglés básico",
@@ -123,15 +130,41 @@ const skillDictionary = [
   "Playwright",
   "Jira",
   "Scrum",
+  "Git",
+  "GitHub",
+  "REST",
+  "PostgreSQL",
+  "MySQL",
+  "MongoDB",
+  "Azure",
+  "GCP",
+  "Kubernetes",
+  "HTML",
+  "CSS",
+  "Tailwind",
+  "Next.js",
 ];
-
-const localStorageKey = "job-match-ai.cv-versions";
 
 function parseSkills(skills: string) {
   return skills
     .split(",")
     .map((skill) => skill.trim())
     .filter(Boolean);
+}
+
+function mergeSkills(...skillSources: string[]) {
+  const seen = new Set<string>();
+
+  return skillSources.flatMap(parseSkills).filter((skill) => {
+    const key = skill.toLowerCase();
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function linkedinSearchUrl(query: string) {
@@ -163,35 +196,6 @@ function normalizeProfile(profile: Partial<CvProfile> | null | undefined): CvPro
   };
 }
 
-function loadCvVersions(): CvVersion[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const storedVersions = window.localStorage.getItem(localStorageKey);
-
-    if (!storedVersions) {
-      return [];
-    }
-
-    const parsed = JSON.parse(storedVersions) as CvVersion[];
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((version) => version && version.id && version.profile)
-      .map((version) => ({
-        ...version,
-        profile: normalizeProfile(version.profile),
-      }));
-  } catch {
-    return [];
-  }
-}
-
 function extractValue(patterns: Array<[RegExp, string]>, text: string, fallback: string) {
   const match = patterns.find(([pattern]) => pattern.test(text));
   return match ? match[1] : fallback;
@@ -207,14 +211,7 @@ function extractSkills(text: string) {
     return matches.join(", ");
   }
 
-  const looseMatches = text
-    .split(/[,\n•;|]/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 1)
-    .filter((segment) => segment.length <= 24)
-    .slice(0, 5);
-
-  return looseMatches.join(", ");
+  return "";
 }
 
 function parseCvText(text: string): CvProfile {
@@ -236,13 +233,23 @@ function parseCvText(text: string): CvProfile {
   };
 }
 
+function profileHasData(profile: CvProfile) {
+  return Boolean(profile.role || profile.location || profile.seniority || profile.skills || profile.language !== "No especificado");
+}
+
 function buildCvDraft(builder: CvBuilderState, profile: CvProfile) {
+  const headlineFallback = [profile.role, profile.seniority].filter(Boolean).join(" | ") || "Título profesional";
+  const focusSkills = parseSkills(profile.skills).slice(0, 3).join(", ");
+
   const lines = [
     builder.fullName ? builder.fullName : "Nombre completo",
-    builder.headline ? builder.headline : `${profile.role} | ${profile.seniority}`,
+    builder.headline ? builder.headline : headlineFallback,
     "",
     "Perfil profesional",
-    builder.summary || `Perfil orientado a ${profile.role} con foco en ${parseSkills(profile.skills).slice(0, 3).join(", ")}.`,
+    builder.summary ||
+      (profile.role
+        ? `Perfil orientado a ${profile.role}${focusSkills ? ` con foco en ${focusSkills}` : ""}.`
+        : "Agrega un resumen profesional breve y verificable."),
     "",
     "Experiencia",
     builder.experience || "Agrega aquí tu experiencia más relevante, logros y alcance.",
@@ -251,14 +258,14 @@ function buildCvDraft(builder: CvBuilderState, profile: CvProfile) {
     builder.education || "Agrega tu formación académica o certificaciones.",
     "",
     "Skills",
-    builder.achievements || profile.skills,
+    builder.achievements || profile.skills || "Agrega skills verificables del CV.",
     "",
     "Ubicación",
-    profile.location,
+    profile.location || "No especificada",
     "Modalidad preferida",
     profile.workMode,
     "Seniority",
-    profile.seniority,
+    profile.seniority || "No especificado",
     "Idiomas",
     profile.language,
   ];
@@ -273,43 +280,112 @@ function getMatchLabel(score: number) {
   return "Baja prioridad";
 }
 
+function displayValue(value: string, fallback = "Pendiente") {
+  return value.trim() ? value : fallback;
+}
+
+function languageTermsForSearch(language: string) {
+  if (language === "Inglés avanzado") return ["inglés avanzado"];
+  if (language === "Inglés intermedio") return ["inglés intermedio"];
+  if (language === "Portugués avanzado") return ["portugués avanzado"];
+  if (language === "Portugués intermedio") return ["portugués intermedio"];
+
+  return [];
+}
+
+function relatedRolesForSkills(role: string, skills: string[]) {
+  const normalizedRole = role.toLowerCase();
+  const normalizedSkills = skills.map((skill) => skill.toLowerCase());
+  const relatedRoles = new Set<string>();
+
+  if (normalizedRole.includes("data") || normalizedSkills.some((skill) => ["sql", "power bi", "tableau", "looker", "python", "excel"].includes(skill))) {
+    relatedRoles.add("Business Intelligence Analyst");
+    relatedRoles.add("Reporting Analyst");
+    relatedRoles.add("Analytics Specialist");
+  }
+
+  if (normalizedRole.includes("frontend") || normalizedSkills.some((skill) => ["react", "typescript", "javascript", "next.js", "html", "css"].includes(skill))) {
+    relatedRoles.add("React Developer");
+    relatedRoles.add("Frontend Engineer");
+  }
+
+  if (normalizedRole.includes("backend") || normalizedSkills.some((skill) => ["node.js", "rest", "postgresql", "mysql", "mongodb"].includes(skill))) {
+    relatedRoles.add("Node.js Developer");
+    relatedRoles.add("Backend Engineer");
+  }
+
+  if (normalizedRole.includes("qa") || normalizedSkills.some((skill) => ["selenium", "cypress", "playwright"].includes(skill))) {
+    relatedRoles.add("QA Analyst");
+    relatedRoles.add("QA Automation Engineer");
+  }
+
+  relatedRoles.delete(role);
+  return Array.from(relatedRoles).slice(0, 5);
+}
+
 function buildSuggestions(filters: SearchFilters): SearchSuggestion[] {
   const skills = parseSkills(filters.skills);
-  const primarySkills = skills.slice(0, 3);
-  const secondarySkills = skills.slice(0, 2);
-  const languageTerms = filters.language === "No especificado" ? [] : [filters.language];
-  const baseTerms = [filters.role, filters.seniority, filters.location, filters.workMode, ...languageTerms].filter(Boolean);
-  const roleOnlyTerms = [filters.role, filters.location, filters.workMode, ...languageTerms].filter(Boolean);
-  const skillsFirstTerms = [filters.role, filters.location, filters.workMode, ...secondarySkills, ...languageTerms].filter(Boolean);
-  const wideTerms = [filters.role, filters.location].filter(Boolean);
-  const conservativeTerms = [filters.role, filters.seniority, filters.location, ...languageTerms, ...skills.slice(0, 1)].filter(Boolean);
+  const cleanRole = filters.role.trim();
+
+  if (!cleanRole) {
+    return [];
+  }
+
+  const primarySkills = skills.slice(0, 4);
+  const secondarySkills = skills.slice(0, 3);
+  const languageTerms = languageTermsForSearch(filters.language);
+  const seniorityTerms = filters.seniority ? [filters.seniority] : [];
+  const workModeTerms = filters.workMode === "Cualquiera" ? [] : [filters.workMode];
+  const relatedRoles = relatedRolesForSkills(cleanRole, skills);
+  const baseTerms = [cleanRole, ...seniorityTerms, filters.location, ...workModeTerms, ...languageTerms].filter(Boolean);
+  const roleOnlyTerms = [cleanRole, filters.location, ...workModeTerms, ...languageTerms].filter(Boolean);
+  const skillsFirstTerms = [cleanRole, filters.location, ...workModeTerms, ...secondarySkills, ...languageTerms].filter(Boolean);
+  const wideTerms = [cleanRole, filters.location].filter(Boolean);
+  const conservativeTerms = [cleanRole, ...seniorityTerms, filters.location, ...languageTerms, ...skills.slice(0, 1)].filter(Boolean);
 
   const suggestions = [
     {
       title: "Vacantes exactas",
+      group: "Prioridad",
       terms: [...baseTerms, ...primarySkills],
-      note: "Lista filtrada más precisa. Prioriza el match con el perfil detectado.",
+      note: "Búsqueda principal. Revisá la descripción: LinkedIn no siempre explicita el nivel real de idioma requerido.",
     },
     {
       title: "Skills primero",
+      group: "Prioridad",
       terms: skillsFirstTerms,
-      note: "Amplía el foco hacia vacantes donde importan más las herramientas que el título exacto.",
+      note: "Útil cuando el título del puesto varía, pero conviene validar idioma y seniority antes de postular.",
     },
     {
       title: "Rol puro",
+      group: "Volumen",
       terms: roleOnlyTerms,
-      note: "Busca por título y contexto básico sin empujar demasiado el filtro de skills.",
+      note: "Trae más resultados. Puede incluir puestos en inglés o con requisitos implícitos no filtrables desde la URL.",
     },
     {
       title: "Exploración amplia",
+      group: "Volumen",
       terms: wideTerms,
-      note: "Abre más resultados para ver variantes cercanas del rol y del mercado.",
+      note: "Sirve para mapear mercado, no para decidir encaje sin leer requisitos.",
     },
     {
       title: "Encaje conservador",
+      group: "Filtro fino",
       terms: conservativeTerms,
-      note: "Reduce ruido y deja solo búsquedas muy cercanas al perfil validado.",
+      note: "Reduce ruido usando rol, seniority, ubicación, idioma y skill principal cuando están definidos.",
     },
+    ...skills.slice(0, 6).map((skill) => ({
+      title: `${skill} + ${cleanRole}`,
+      group: "Por skill",
+      terms: [cleanRole, skill, filters.location, ...workModeTerms, ...languageTerms].filter(Boolean),
+      note: "Busca variantes donde una skill concreta puede pesar más que el título exacto del puesto.",
+    })),
+    ...relatedRoles.map((relatedRole) => ({
+      title: relatedRole,
+      group: "Roles cercanos",
+      terms: [relatedRole, filters.location, ...workModeTerms, ...skills.slice(0, 2), ...languageTerms].filter(Boolean),
+      note: "Rol alternativo sugerido por skills. Usalo para ampliar opciones sin irse del foco principal.",
+    })),
   ];
 
   return suggestions.map((suggestion, index) => {
@@ -326,7 +402,10 @@ function buildSuggestions(filters: SearchFilters): SearchSuggestion[] {
       match: getMatchLabel(score),
       score,
       note: suggestion.note,
+      group: suggestion.group,
     };
+  }).filter((suggestion, index, allSuggestions) => {
+    return allSuggestions.findIndex((item) => item.query.toLowerCase() === suggestion.query.toLowerCase()) === index;
   });
 }
 
@@ -334,10 +413,13 @@ export default function Home() {
   const [filters, setFilters] = useState<SearchFilters>(initialFilters);
   const [cvText, setCvText] = useState("");
   const [cvFileName, setCvFileName] = useState("");
-  const [cvStatus, setCvStatus] = useState("Pega el texto del CV o sube un archivo para autocompletar el formulario.");
+  const [cvStatus, setCvStatus] = useState("Subí o pegá tu CV para detectar datos. Después completá los criterios y buscá en LinkedIn.");
   const [isParsingCv, setIsParsingCv] = useState(false);
   const [cvVersions, setCvVersions] = useState<CvVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>("");
+  const [detectedProfile, setDetectedProfile] = useState<CvProfile>(initialFilters);
+  const [searchedSuggestions, setSearchedSuggestions] = useState<SearchSuggestion[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
   const [cvBuilder, setCvBuilder] = useState<CvBuilderState>({
     fullName: "",
     headline: "",
@@ -346,53 +428,51 @@ export default function Home() {
     education: "",
     achievements: "",
   });
-  const suggestions = buildSuggestions(filters);
-  const skillList = parseSkills(filters.skills);
-  const profilePreview = useMemo(() => parseCvText(cvText), [cvText]);
-  const confirmedProfile = useMemo(() => normalizeProfile({ ...profilePreview, ...filters }), [filters, profilePreview]);
+  const suggestions = searchedSuggestions;
+  const detectedSkillList = useMemo(() => parseSkills(detectedProfile.skills), [detectedProfile.skills]);
+  const manualSkillList = useMemo(() => parseSkills(filters.skills), [filters.skills]);
+  const skillList = useMemo(() => mergeSkills(detectedProfile.skills, filters.skills), [detectedProfile.skills, filters.skills]);
+  const confirmedProfile = useMemo(
+    () =>
+      normalizeProfile({
+        ...detectedProfile,
+        ...filters,
+        role: filters.role || detectedProfile.role,
+        location: filters.location || detectedProfile.location,
+        workMode: filters.workMode === "Cualquiera" ? detectedProfile.workMode || filters.workMode : filters.workMode,
+        seniority: filters.seniority || detectedProfile.seniority,
+        skills: skillList.join(", "),
+        language: filters.language !== "No especificado" ? filters.language : detectedProfile.language,
+      }),
+    [detectedProfile, filters, skillList],
+  );
   const selectedVersion = cvVersions.find((version) => version.id === selectedVersionId) ?? cvVersions[0];
   const currentCvDraft = useMemo(() => buildCvDraft(cvBuilder, confirmedProfile), [cvBuilder, confirmedProfile]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const storedVersions = loadCvVersions();
-
-      if (storedVersions.length === 0) {
-        return;
-      }
-
-      setCvVersions(storedVersions);
-      setSelectedVersionId(storedVersions[0]?.id ?? "");
-
-      const firstVersion = storedVersions[0];
-      if (firstVersion) {
-        setSelectedVersionId(firstVersion.id);
-        setCvText(firstVersion.profile.skills ? firstVersion.profile.skills : "");
-        applyProfile(firstVersion.profile);
-        setCvStatus(
-          `Se cargó el historial guardado con ${storedVersions.length} versión${storedVersions.length === 1 ? "" : "es"}.`,
-        );
-      }
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (cvVersions.length === 0) {
-      return;
-    }
-
-    window.localStorage.setItem(localStorageKey, JSON.stringify(cvVersions));
-  }, [cvVersions]);
+  const canSearch = Boolean(confirmedProfile.role.trim());
 
   function applyProfile(profile: CvProfile) {
     const normalizedProfile = normalizeProfile(profile);
 
+    setDetectedProfile(normalizedProfile);
     setFilters((current) => ({
       ...current,
-      ...normalizedProfile,
+      role: current.role || normalizedProfile.role,
+      location: current.location || normalizedProfile.location,
+      workMode: current.workMode === "Cualquiera" ? normalizedProfile.workMode || current.workMode : current.workMode,
+      seniority: current.seniority || normalizedProfile.seniority,
+      language: current.language !== "No especificado" ? current.language : normalizedProfile.language,
     }));
+    setSearchedSuggestions([]);
+    setHasSearched(false);
+  }
+
+  function updateFilters(nextFilters: Partial<SearchFilters>) {
+    setFilters((current) => ({
+      ...current,
+      ...nextFilters,
+    }));
+    setSearchedSuggestions([]);
+    setHasSearched(false);
   }
 
   function addVersion(fileName: string, text: string, profile: CvProfile, source: CvVersion["source"]) {
@@ -422,26 +502,58 @@ export default function Home() {
 
   function loadVersion(version: CvVersion) {
     setSelectedVersionId(version.id);
-    setCvText(version.profile.skills ? version.profile.skills : cvText);
     setCvFileName(version.fileName);
     applyProfile(version.profile);
     setCvStatus(`Se cargó la versión ${version.fileName} (${version.source}).`);
   }
 
+  function handleSearch() {
+    const normalizedFilters = normalizeProfile(confirmedProfile);
+    const nextSuggestions = buildSuggestions(normalizedFilters);
+
+    setHasSearched(true);
+    setSearchedSuggestions(nextSuggestions);
+
+    if (nextSuggestions.length === 0) {
+      setCvStatus("Completá al menos el rol objetivo para buscar en LinkedIn.");
+      return;
+    }
+
+    setCvStatus("Búsquedas generadas. Elegí una opción para abrir LinkedIn en una pestaña nueva.");
+  }
+
+  async function copyExtensionProfile() {
+    const payload = {
+      role: confirmedProfile.role,
+      location: confirmedProfile.location,
+      workMode: confirmedProfile.workMode,
+      seniority: confirmedProfile.seniority,
+      skills: confirmedProfile.skills,
+      language: confirmedProfile.language,
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setCvStatus("Perfil copiado. Pegalo en la extensión para analizar puestos visibles en LinkedIn.");
+    } catch {
+      setCvStatus("No se pudo copiar el perfil. Revisá permisos del navegador e intentá de nuevo.");
+    }
+  }
+
   const insightCards = [
     {
       label: "Rol detectado",
-      value: confirmedProfile.role,
+      value: displayValue(confirmedProfile.role),
       helper: "Se usa como eje de la búsqueda y del CV base.",
     },
     {
       label: "Seniority",
-      value: confirmedProfile.seniority,
+      value: displayValue(confirmedProfile.seniority),
       helper: "Ayuda a definir el tono y el nivel de las búsquedas.",
     },
     {
       label: "Ubicación",
-      value: confirmedProfile.location,
+      value: displayValue(confirmedProfile.location),
       helper: "Se prioriza en los filtros y en el encabezado del CV.",
     },
     {
@@ -451,16 +563,16 @@ export default function Home() {
     },
     {
       label: "Skills clave",
-      value: skillList.length ? `${skillList.length} detectadas` : "Sin skills",
-      helper: "Sirven para el CV y para ampliar la búsqueda en LinkedIn.",
+      value: skillList.length ? `${skillList.length} combinadas` : "Sin skills",
+      helper: "Combina skills del CV con skills agregadas o priorizadas.",
     },
   ];
 
   const coreBenefits = [
-    "Analiza CVs en PDF, DOCX o texto",
-    "Extrae un perfil estructurado y accionable",
-    "Genera búsquedas de LinkedIn desde ese perfil",
-    "Arma un CV base editable por secciones",
+    "Cargá tu CV",
+    "Completá criterios faltantes",
+    "Buscá cuando esté validado",
+    "Revisá idioma y requisitos",
   ];
 
   async function handleCvFile(file: File) {
@@ -486,9 +598,11 @@ export default function Home() {
       applyProfile(result.profile);
       addVersion(result.fileName, result.text, result.profile, result.source);
       setCvStatus(
-        result.source === "openai"
-          ? `CV cargado desde ${result.fileName}. Se usó IA para extraer el perfil.`
-          : `CV cargado desde ${result.fileName}. Se usaron heurísticas locales porque no había IA disponible.`,
+        profileHasData(result.profile)
+          ? result.source === "openai"
+            ? `CV cargado desde ${result.fileName}. Se usó IA para extraer el perfil. Revisá y completá los criterios antes de buscar.`
+            : `CV cargado desde ${result.fileName}. Se usaron heurísticas locales; revisá los campos detectados antes de buscar.`
+          : `CV cargado desde ${result.fileName}, pero no se pudieron detectar datos suficientes. Completá los criterios manualmente.`,
       );
     } catch {
       try {
@@ -505,7 +619,9 @@ export default function Home() {
         applyProfile(fallbackProfile);
         addVersion(file.name, fallbackText, fallbackProfile, "text");
         setCvStatus(
-          `No se pudo usar el parser del archivo. Se leyó como texto plano desde ${file.name}.`,
+          profileHasData(fallbackProfile)
+            ? `No se pudo usar el parser del archivo. Se leyó como texto plano desde ${file.name}; revisá los criterios antes de buscar.`
+            : `Se leyó ${file.name} como texto plano, pero no se detectaron datos suficientes. Completá los criterios manualmente.`,
         );
       } catch {
         setCvStatus("No se pudo leer el archivo. Pega el texto del CV para completar el perfil.");
@@ -523,14 +639,13 @@ export default function Home() {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <span className="inline-flex items-center rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">
-                Job Match AI · CV Intelligence
+                Match Laboral
               </span>
               <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-                Analiza tu CV con precisión y convierte ese perfil en oportunidades.
+                Buscá trabajo con tu CV.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-                La propuesta del producto arranca en el análisis del CV: extrae perfil, detecta señales clave,
-                genera búsquedas accionables y construye un CV base editable. Todo en una experiencia clara, moderna y rápida.
+                Cargá tu CV, completá los datos que falten y recién después abrí búsquedas en LinkedIn con criterios revisables.
               </p>
             </div>
 
@@ -548,9 +663,9 @@ export default function Home() {
 
           <div className="mt-8 grid gap-4 md:grid-cols-5">
             {[
-              ["Rol detectado", confirmedProfile.role],
-              ["Ubicación", confirmedProfile.location],
-              ["Modalidad", confirmedProfile.workMode],
+              ["Rol detectado", displayValue(confirmedProfile.role)],
+              ["Ubicación", displayValue(confirmedProfile.location)],
+              ["Modalidad", displayValue(confirmedProfile.workMode)],
               ["Idioma", confirmedProfile.language],
               ["Skills", skillList.length ? `${skillList.length} detectadas` : "Sin skills"],
             ].map(([label, value]) => (
@@ -628,11 +743,14 @@ export default function Home() {
                     onChange={(event) => {
                       const nextText = event.target.value;
                       setCvText(nextText);
-                      applyProfile(parseCvText(nextText));
+                      const nextProfile = parseCvText(nextText);
+                      applyProfile(nextProfile);
                       setCvStatus(
                         nextText.trim()
-                          ? "CV detectado desde texto pegado. El perfil quedó actualizado."
-                          : "Pega el texto del CV o sube un archivo para autocompletar el formulario.",
+                          ? profileHasData(nextProfile)
+                            ? "CV detectado desde texto pegado. Revisá y completá los criterios antes de buscar."
+                            : "Texto cargado, pero no se detectaron datos suficientes. Completá los criterios manualmente."
+                          : "Subí o pegá tu CV para detectar datos. Después completá los criterios y buscá en LinkedIn.",
                       );
                     }}
                     rows={8}
@@ -644,14 +762,16 @@ export default function Home() {
                 <div className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/55 px-4 py-3 text-sm text-slate-300">
                   <span>{cvStatus}</span>
                   <span className="text-xs text-slate-400">
-                    El análisis del CV alimenta búsquedas, CV base y versiones históricas.
+                    El análisis del CV solo prepara datos. La búsqueda real se dispara con el botón de LinkedIn.
                   </span>
-                  <a
-                    href="#linkedin-searches"
-                    className="inline-flex w-fit items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
-                  >
-                    Ver búsquedas de LinkedIn
-                  </a>
+                  {hasSearched ? (
+                    <a
+                      href="#linkedin-searches"
+                      className="inline-flex w-fit items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
+                    >
+                      Ver búsquedas generadas
+                    </a>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -664,7 +784,7 @@ export default function Home() {
                   </p>
                   <h3 className="mt-2 text-lg font-semibold text-white">Ajustes para filtrar mejor</h3>
                   <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
-                    Si el CV no declara idioma, modalidad o seniority, completalo acá. La app usa estos datos para las búsquedas, sin modificar la experiencia real del CV.
+                    Si el CV infiere un rol que ya no querés priorizar, corregilo acá. El rol objetivo y los criterios manuales tienen prioridad sobre lo detectado.
                   </p>
                 </div>
                 <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-xs font-semibold text-cyan-100">
@@ -677,7 +797,7 @@ export default function Home() {
                   Rol objetivo
                   <input
                     value={filters.role}
-                    onChange={(event) => setFilters((current) => ({ ...current, role: event.target.value }))}
+                    onChange={(event) => updateFilters({ role: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
                     placeholder="Data Analyst"
                   />
@@ -687,7 +807,7 @@ export default function Home() {
                   Ubicación
                   <input
                     value={filters.location}
-                    onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+                    onChange={(event) => updateFilters({ location: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
                     placeholder="Buenos Aires, Argentina"
                   />
@@ -697,7 +817,7 @@ export default function Home() {
                   Modalidad
                   <select
                     value={filters.workMode}
-                    onChange={(event) => setFilters((current) => ({ ...current, workMode: event.target.value }))}
+                    onChange={(event) => updateFilters({ workMode: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
                   >
                     {workModeOptions.map((option) => (
@@ -712,12 +832,12 @@ export default function Home() {
                   Seniority
                   <select
                     value={filters.seniority}
-                    onChange={(event) => setFilters((current) => ({ ...current, seniority: event.target.value }))}
+                    onChange={(event) => updateFilters({ seniority: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
                   >
                     {seniorityOptions.map((option) => (
                       <option key={option} value={option} className="bg-slate-950">
-                        {option}
+                        {option || "No especificado"}
                       </option>
                     ))}
                   </select>
@@ -727,7 +847,7 @@ export default function Home() {
                   Nivel de idioma
                   <select
                     value={filters.language}
-                    onChange={(event) => setFilters((current) => ({ ...current, language: event.target.value }))}
+                    onChange={(event) => updateFilters({ language: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
                   >
                     {languageOptions.map((option) => (
@@ -739,14 +859,90 @@ export default function Home() {
                 </label>
 
                 <label className="grid gap-2 text-sm font-medium text-slate-200">
-                  Skills clave
+                  Skills adicionales o prioritarias
                   <input
                     value={filters.skills}
-                    onChange={(event) => setFilters((current) => ({ ...current, skills: event.target.value }))}
+                    onChange={(event) => updateFilters({ skills: event.target.value })}
                     className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
-                    placeholder="SQL, Power BI, Excel"
+                    placeholder="Agregá skills que quieras priorizar"
                   />
                 </label>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Skills detectadas del CV
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {detectedSkillList.length ? (
+                      detectedSkillList.map((skill) => (
+                        <span key={skill} className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">
+                          {skill}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-400">Todavía no se detectaron skills del CV.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Skills usadas para buscar
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {skillList.length ? (
+                      skillList.map((skill) => (
+                        <span key={skill} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
+                          {skill}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-400">Se usarán cuando el CV o el formulario tengan skills.</span>
+                    )}
+                  </div>
+                  {manualSkillList.length ? (
+                    <p className="mt-3 text-xs text-slate-400">Incluye {manualSkillList.length} skill{manualSkillList.length === 1 ? "" : "s"} agregada{manualSkillList.length === 1 ? "" : "s"} manualmente.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSearch}
+                  disabled={!canSearch}
+                  className="inline-flex h-11 items-center justify-center rounded-2xl bg-cyan-400 px-5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                >
+                  Generar búsquedas
+                </button>
+                <span className="text-sm text-slate-400">
+                  {canSearch
+                    ? "No abre LinkedIn todavía; solo prepara opciones para elegir."
+                    : "Completá el rol objetivo para habilitar la búsqueda."}
+                </span>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      Extensión de LinkedIn
+                    </p>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Copiá este perfil validado y pegalo en la extensión para evaluar el puesto visible.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={copyExtensionProfile}
+                    disabled={!profileHasData(confirmedProfile)}
+                    className="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                  >
+                    Copiar perfil
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -764,10 +960,10 @@ export default function Home() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                    Historial de CV
+                    CVs cargados en esta sesión
                   </p>
                   <p className="mt-1 text-sm text-slate-300">
-                    Conserva versiones previas y evita reprocesar archivos idénticos.
+                    Se muestran solo durante esta sesión para comparar cargas sin traer datos viejos al iniciar.
                   </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm font-semibold text-white">
@@ -925,10 +1121,10 @@ export default function Home() {
               Qué detecta y qué genera
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              Hallazgos del CV con salida accionable
+              Revisión antes de buscar
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              El usuario ve rápido qué entendió la app y qué acciones puede tomar después: buscar, editar el CV o volver a cargar otra versión.
+              Confirmá que el perfil, idioma y seniority estén bien antes de abrir resultados externos.
             </p>
 
             <div className="mt-6 grid gap-4">
@@ -943,16 +1139,26 @@ export default function Home() {
                     confirmedProfile.location,
                     confirmedProfile.workMode,
                     confirmedProfile.language,
-                  ]
-                    .filter(Boolean)
-                    .map((signal) => (
-                      <span
-                        key={signal}
-                        className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100"
-                      >
-                        {signal}
-                      </span>
-                    ))}
+                  ].filter((signal) => signal && signal !== "No especificado").length ? (
+                    [
+                      confirmedProfile.role,
+                      confirmedProfile.seniority,
+                      confirmedProfile.location,
+                      confirmedProfile.workMode,
+                      confirmedProfile.language,
+                    ]
+                      .filter((signal) => signal && signal !== "No especificado")
+                      .map((signal) => (
+                        <span
+                          key={signal}
+                          className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100"
+                        >
+                          {signal}
+                        </span>
+                      ))
+                  ) : (
+                    <span className="text-sm text-slate-400">Todavía no hay perfil detectado.</span>
+                  )}
                 </div>
               </div>
 
@@ -981,40 +1187,51 @@ export default function Home() {
                   Siguiente acción
                 </p>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Con este perfil la app puede abrir búsquedas relevantes, comparar cambios del CV y seguir refinando la presentación profesional.
+                  Cargá el CV, completá campos faltantes y usá el botón de búsqueda. Si una vacante está en inglés, revisá la descripción antes de postular.
                 </p>
               </div>
 
               <div id="linkedin-searches" className="rounded-[1.5rem] border border-white/10 bg-slate-950/45 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Búsquedas derivadas
+                  Búsquedas en LinkedIn
                 </p>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Estas opciones no son una vacante puntual. Cada una abre una lista de oportunidades filtradas en LinkedIn con distinto nivel de precisión.
+                  Estas son búsquedas accionables, no vacantes importadas. Aparecen recién después de confirmar criterios y ayudan a explorar más volumen sin perder foco.
                 </p>
                 <div className="mt-4 grid gap-3">
-                  {suggestions.map((search) => (
-                    <article key={search.title} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-white">{search.title}</h3>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
-                          {search.match}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs leading-5 text-slate-300">{search.note}</p>
-                      <p className="mt-3 rounded-xl bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
-                        {search.query}
-                      </p>
-                      <a
-                        href={search.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex h-9 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
-                      >
-                        Abrir en LinkedIn
-                      </a>
-                    </article>
-                  ))}
+                  {hasSearched && suggestions.length ? (
+                    suggestions.map((search) => (
+                      <article key={search.title} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-semibold text-white">{search.title}</h3>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-100">
+                              {search.group}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
+                              {search.match}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-slate-300">{search.note}</p>
+                        <p className="mt-3 rounded-xl bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+                          {search.query}
+                        </p>
+                        <a
+                          href={search.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 inline-flex h-9 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/20"
+                        >
+                          Abrir en LinkedIn
+                        </a>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">
+                      No hay búsquedas generadas todavía.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

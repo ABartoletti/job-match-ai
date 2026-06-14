@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Job Match AI",
-  description: "CV-based job search assistant for LinkedIn and open job sources.",
+  title: "Match Laboral",
+  description: "Buscador laboral asistido por CV para revisar criterios y abrir búsquedas en LinkedIn.",
 };
 
 export default function RootLayout({

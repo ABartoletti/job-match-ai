@@ -5,10 +5,16 @@ import { PDFParse } from "pdf-parse";
 
 const rolePatterns: Array<[RegExp, string]> = [
   [/data analyst|business intelligence|bi analyst/i, "Data Analyst"],
+  [/data engineer|analytics engineer/i, "Data Engineer"],
   [/qa automation|automation qa|sdet/i, "QA Automation"],
+  [/quality assurance|qa analyst|tester/i, "QA Analyst"],
   [/frontend|front end|react/i, "Frontend Developer"],
   [/backend|back end|node/i, "Backend Developer"],
+  [/full stack|fullstack/i, "Full Stack Developer"],
   [/product manager|product owner/i, "Product Manager"],
+  [/project manager|scrum master/i, "Project Manager"],
+  [/ux designer|ui designer|product designer/i, "UX/UI Designer"],
+  [/devops|site reliability|sre/i, "DevOps Engineer"],
   [/data scientist|machine learning|ml engineer/i, "Data Scientist"],
 ];
 
@@ -64,6 +70,19 @@ const skillDictionary = [
   "Playwright",
   "Jira",
   "Scrum",
+  "Git",
+  "GitHub",
+  "REST",
+  "PostgreSQL",
+  "MySQL",
+  "MongoDB",
+  "Azure",
+  "GCP",
+  "Kubernetes",
+  "HTML",
+  "CSS",
+  "Tailwind",
+  "Next.js",
 ];
 
 type CvProfile = {
@@ -99,25 +118,18 @@ function extractSkills(text: string) {
     return matches.join(", ");
   }
 
-  const looseMatches = text
-    .split(/[\n,•;|]/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 1)
-    .filter((segment) => segment.length <= 24)
-    .slice(0, 5);
-
-  return looseMatches.join(", ");
+  return "";
 }
 
 function parseCvText(text: string): CvProfile {
   const normalizedText = text.replace(/\s+/g, " ");
 
   return {
-    role: extractValue(rolePatterns, normalizedText, "Data Analyst"),
-    location: extractValue(locationPatterns, normalizedText, "Buenos Aires, Argentina"),
-    workMode: extractValue(workModePatterns, normalizedText, "Remoto"),
-    seniority: extractValue(seniorityPatterns, normalizedText, "Semi Senior"),
-    skills: extractSkills(normalizedText) || "SQL, Power BI, Excel",
+    role: extractValue(rolePatterns, normalizedText, ""),
+    location: extractValue(locationPatterns, normalizedText, ""),
+    workMode: extractValue(workModePatterns, normalizedText, "Cualquiera"),
+    seniority: extractValue(seniorityPatterns, normalizedText, ""),
+    skills: extractSkills(normalizedText),
     language: extractValue(languagePatterns, normalizedText, "No especificado"),
   };
 }
@@ -209,11 +221,11 @@ function buildAnalysisPrompt(cvText: string) {
     "Analiza el CV y devuelve solo JSON válido con estas claves exactas:",
     '{"role":"","location":"","workMode":"Remoto|Hibrido|Presencial|Cualquiera","seniority":"Trainee|Junior|Semi Senior|Senior|Lead","skills":"skill1, skill2, skill3","language":"No especificado|Inglés básico|Inglés intermedio|Inglés avanzado|Portugués básico|Portugués intermedio|Portugués avanzado"}',
     "Reglas:",
-    "- Si no puedes inferir un campo con confianza, usa un valor razonable y conservador.",
+    "- Si no puedes inferir role, location, seniority o skills con confianza, devuelve string vacío en ese campo.",
     "- No agregues explicaciones ni texto fuera del JSON.",
     "- Mantén skills como lista separada por comas.",
     "- Si el CV sugiere un rol dominante, usa ese rol.",
-    "- Si la ubicación no aparece clara, conserva Buenos Aires, Argentina.",
+    "- Si la ubicación no aparece clara, deja location vacío.",
     "- Si el idioma no aparece claro, usa No especificado.",
     "CV:",
     cvText,
@@ -240,7 +252,7 @@ function normalizeOpenAiProfile(value: Partial<CvProfile> | null | undefined): C
         : "No especificado",
   };
 
-  if (!profile.role || !profile.location || !profile.workMode || !profile.seniority || !profile.skills) {
+  if (!profile.role && !profile.location && !profile.seniority && !profile.skills && profile.language === "No especificado") {
     return null;
   }
 

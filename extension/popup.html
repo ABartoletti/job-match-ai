@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Match Laboral</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Match Laboral</p>
+        <h1>Analizar puesto visible</h1>
+      </header>
+
+      <label>
+        URL de la app
+        <input id="apiBase" placeholder="http://localhost:3000" />
+      </label>
+
+      <label>
+        Perfil exportado desde la app
+        <textarea id="profile" rows="7" placeholder="Pegá acá el JSON copiado desde Match Laboral"></textarea>
+      </label>
+
+      <div class="actions">
+        <button id="saveProfile" type="button">Guardar perfil</button>
+        <button id="analyze" type="button">Analizar puesto visible</button>
+      </div>
+
+      <section id="status" class="status">Abrí un puesto de LinkedIn y presioná analizar.</section>
+      <section id="result" class="result hidden"></section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

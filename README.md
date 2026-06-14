@@ -30,3 +30,20 @@ The product is built for job seekers first. It should help users understand thei
 The simplest path beyond local development is deploying the Next.js app on Vercel.
 
 Set `OPENAI_API_KEY` as an environment variable in the deployment platform if AI CV analysis should be enabled in production.
+
+## Local LinkedIn extension MVP
+
+This repo includes a local Chrome extension MVP in `extension/`.
+
+To test it:
+
+1. Run the app with `npm.cmd run dev`.
+2. Open Chrome and go to `chrome://extensions`.
+3. Enable Developer mode.
+4. Click Load unpacked.
+5. Select the `extension/` folder.
+6. In the app, load or paste a CV, confirm the search criteria, and click Copy profile.
+7. Open a LinkedIn Jobs posting.
+8. Open the extension popup, paste the copied profile, save it, and click Analyze visible job.
+
+The extension only analyzes the currently visible job when the user clicks the button. It does not automate navigation, scrape lists in bulk, or ask for LinkedIn credentials.

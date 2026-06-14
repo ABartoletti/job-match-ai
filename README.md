@@ -1,4 +1,6 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Job Match AI is a CV-analysis-first job search assistant.
+
+It reads a CV, extracts the professional profile, and uses that profile to generate LinkedIn searches and an editable CV base.
 
 ## Getting Started
 
@@ -15,6 +17,13 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+### Optional AI CV analysis
+
+Copy `.env.example` to `.env.local` and set `OPENAI_API_KEY` if you want the app to use OpenAI for CV analysis.
+When the key is not present, the app falls back to local heuristics and still generates LinkedIn searches.
+
+Only the CV analysis step uses AI. The LinkedIn search generation remains deterministic and does not require a model.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

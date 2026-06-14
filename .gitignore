@@ -1,41 +1,81 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Logs
+logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+lerna-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# vercel
-.vercel
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# typescript
+# Dependencies
+/node_modules
+node_modules/
+jspm_packages/
+/.pnp
+.pnp.*
+
+# Package manager files
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.yarn-integrity
+.pnpm-store
+.npm
+
+# Testing and coverage
+/coverage
+coverage
+*.lcov
+.nyc_output
+
+# Next.js
+/.next/
+.next
+/out/
+out
+
+# Production builds
+/build
+build/Release
+dist
+.output
+
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel
+
+# Tool caches
+.cache
+.parcel-cache
+.eslintcache
+.stylelintcache
+.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Misc
+.DS_Store
+*.pem
+*.tgz
+.node_repl_history
+.vscode-test

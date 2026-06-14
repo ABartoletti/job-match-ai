@@ -185,6 +185,21 @@ pre {
   padding: 8px;
 }
 
+.debug-grid {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.debug-grid span {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 7px;
+}
+
 ul {
   margin: 8px 0 0;
   padding-left: 18px;

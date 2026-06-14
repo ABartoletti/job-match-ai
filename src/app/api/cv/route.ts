@@ -29,11 +29,11 @@ const locationPatterns: Array<[RegExp, string]> = [
 ];
 
 const seniorityPatterns: Array<[RegExp, string]> = [
-  [/trainee|intern|practicante/i, "Trainee"],
-  [/junior|jr\.?/i, "Junior"],
-  [/semi senior|semi-senior|ssr\.?/i, "Semi Senior"],
-  [/senior|sr\.?/i, "Senior"],
-  [/lead|principal|staff/i, "Lead"],
+  [/\b(trainee|intern|practicante)\b/i, "Trainee"],
+  [/\b(junior|jr\.?)\b/i, "Junior"],
+  [/\b(semi senior|semi-senior|ssr\.?)\b/i, "Semi Senior"],
+  [/\b(senior|sr\.?)\b/i, "Senior"],
+  [/\b(lead|principal|staff)\b/i, "Lead"],
 ];
 
 const workModePatterns: Array<[RegExp, string]> = [

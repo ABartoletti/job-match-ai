@@ -51,6 +51,7 @@ type MatchResult = {
   missingRequirements?: RequirementMatch[];
   requirementsByCriticality?: RequirementsByCriticality;
   scoreBreakdown?: ScoreBreakdown;
+  debug?: MatchDebug;
   recommendation: string;
   source: "openai" | "heuristic";
 };
@@ -88,6 +89,30 @@ type RequirementsByCriticality = {
   required: RequirementMatch[];
   important: RequirementMatch[];
   niceToHave: RequirementMatch[];
+};
+
+type SeniorityLevel = "trainee" | "junior" | "semi senior" | "senior" | "lead" | "principal" | "architect";
+
+type SeniorityDetection = {
+  title: SeniorityLevel | "";
+  description: SeniorityLevel | "";
+  years: number | null;
+  inferredFromYears: SeniorityLevel | "";
+  final: SeniorityLevel | "";
+  rule: string;
+};
+
+type MatchDebug = {
+  seniority: SeniorityDetection;
+  family: {
+    profile: string | null;
+    title: string | null;
+    detected: string[];
+    conflict: string | null;
+    finalRule: string;
+  };
+  scoreBreakdown: ScoreBreakdown;
+  rulesFired: string[];
 };
 
 const roleFamilies: RoleFamily[] = [
@@ -196,12 +221,16 @@ const requirementDefinitions: RequirementDefinition[] = [
   { name: "Performance Testing", aliases: ["performance testing", "load testing", "stress testing", "jmeter"] },
 ];
 
-const seniorityAliases: Record<string, string[]> = {
-  trainee: ["trainee", "intern", "practicante"],
-  junior: ["junior", "jr", "entry level", "entry-level"],
-  "semi senior": ["semi senior", "semi-senior", "ssr", "mid", "mid-level", "mid level"],
-  senior: ["senior", "sr", "sr.", "sênior"],
-  lead: ["lead", "principal", "staff"],
+const seniorityOrder: SeniorityLevel[] = ["trainee", "junior", "semi senior", "senior", "lead", "principal", "architect"];
+
+const seniorityAliases: Record<SeniorityLevel, RegExp[]> = {
+  trainee: [/\btrainee\b/i, /\bintern\b/i, /\bpracticante\b/i],
+  junior: [/\bjunior\b/i, /\bjr\.?\b/i, /\bentry[-\s]?level\b/i],
+  "semi senior": [/\bsemi[-\s]?senior\b/i, /\bssr\.?\b/i, /\bmid[-\s]?level\b/i, /\bmid\b/i],
+  senior: [/\bsenior\b/i, /\bsr\.?\b/i, /\bsênior\b/i],
+  lead: [/\blead\b/i, /\bstaff\b/i],
+  principal: [/\bprincipal\b/i],
+  architect: [/\barchitect\b/i, /\barquitect[oa]\b/i],
 };
 
 function parseSkills(skills = "") {
@@ -254,14 +283,59 @@ function skillMatches(jobText: string, skill: string) {
   return hasAnyTerm(jobText, [canonical, ...aliases]);
 }
 
-function normalizeSeniority(value = "") {
-  const normalized = normalizeText(value);
-  const match = Object.entries(seniorityAliases).find(([, aliases]) => aliases.some((alias) => normalized.includes(normalizeText(alias))));
-  return match ? match[0] : "";
+function detectSeniorityInText(value = ""): SeniorityLevel | "" {
+  const matches = seniorityOrder.filter((level) => seniorityAliases[level].some((pattern) => pattern.test(value)));
+  return matches.at(-1) || "";
 }
 
-function detectJobSeniority(jobText: string) {
-  return Object.keys(seniorityAliases).find((level) => hasAnyTerm(jobText, seniorityAliases[level])) || "";
+function normalizeSeniority(value = "") {
+  return detectSeniorityInText(value);
+}
+
+function inferSeniorityFromYears(years: number | null): SeniorityLevel | "" {
+  if (years === null) return "";
+  if (years <= 1) return "junior";
+  if (years <= 4) return "semi senior";
+  if (years <= 8) return "senior";
+  return "lead";
+}
+
+function detectJobSeniority(title: string, description: string): SeniorityDetection {
+  const years = detectYearsOfExperience([title, description].join("\n"));
+  const titleSeniority = detectSeniorityInText(title);
+  const descriptionSeniority = detectSeniorityInText(description);
+  const inferredFromYears = inferSeniorityFromYears(years);
+
+  if (titleSeniority) {
+    return {
+      title: titleSeniority,
+      description: descriptionSeniority,
+      years,
+      inferredFromYears,
+      final: titleSeniority,
+      rule: "title",
+    };
+  }
+
+  if (descriptionSeniority) {
+    return {
+      title: titleSeniority,
+      description: descriptionSeniority,
+      years,
+      inferredFromYears,
+      final: descriptionSeniority,
+      rule: "description",
+    };
+  }
+
+  return {
+    title: titleSeniority,
+    description: descriptionSeniority,
+    years,
+    inferredFromYears,
+    final: inferredFromYears,
+    rule: inferredFromYears ? "years" : "none",
+  };
 }
 
 function detectYearsOfExperience(text: string) {
@@ -279,6 +353,8 @@ function inferProfileYears(profile: ProfilePayload) {
   if (seniority === "semi senior") return 3;
   if (seniority === "senior") return 5;
   if (seniority === "lead") return 7;
+  if (seniority === "principal") return 9;
+  if (seniority === "architect") return 10;
 
   return null;
 }
@@ -419,7 +495,8 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   const hasTitleFamilyMatch = Boolean(profileFamily && titleFamily?.id === profileFamily.id);
   const hasDifferentKnownFamily = Boolean(profileFamily && jobFamilies.length > 0 && !hasSameFamily);
   const profileSeniority = normalizeSeniority(profile.seniority);
-  const jobSeniority = detectJobSeniority(jobText);
+  const jobSeniorityDetection = detectJobSeniority(title, jobText);
+  const jobSeniority = jobSeniorityDetection.final;
   const requiredYears = detectYearsOfExperience(jobText);
   const profileYears = inferProfileYears(profile);
   const detectedRequirements = detectRequirements(jobText, profile.skills || "");
@@ -438,6 +515,13 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   };
   const reasons: string[] = [];
   const risks: string[] = [];
+  const rulesFired: string[] = [];
+  const familyConflict =
+    profileFamily && hasSameFamily
+      ? null
+      : profileFamily && jobFamilies.length > 0
+        ? `Perfil ${profileFamily.label} vs aviso ${jobFamilies.map((family) => family.label).join(", ")}`
+        : null;
 
   if (totalRequirementWeight > 0) {
     const coverageRatio = coveredRequirementWeight / totalRequirementWeight;
@@ -446,6 +530,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
 
     if (coveredNames.length > 0) {
       reasons.push(`Requisitos cubiertos según criticidad: ${coveredNames.slice(0, 8).join(", ")}.`);
+      rulesFired.push("skills.weighted-requirements");
     }
 
     if (missingRequiredRequirements.length > 0) {
@@ -468,6 +553,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   if (requiredYears !== null && profileYears !== null && profileYears >= requiredYears) {
     scoreBreakdown.experience = 30;
     reasons.push(`La experiencia requerida detectada (${requiredYears}+ años) parece compatible con el seniority/perfil cargado.`);
+    rulesFired.push("experience.years-compatible");
   } else if (requiredYears !== null && profileYears !== null && profileYears + 1 >= requiredYears) {
     scoreBreakdown.experience = 22;
     risks.push(`La experiencia requerida (${requiredYears}+ años) queda cerca del nivel estimado del perfil.`);
@@ -488,9 +574,11 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   if (profile.role && hasTitleFamilyMatch) {
     scoreBreakdown.family = 20;
     reasons.push(`El puesto pertenece a la misma familia profesional ${profileFamily?.label}.`);
+    rulesFired.push("family.title-match");
   } else if (profile.role && hasSameFamily) {
     scoreBreakdown.family = 16;
     reasons.push(`El aviso comparte la familia profesional ${profileFamily?.label} con tu rol objetivo.`);
+    rulesFired.push("family.same-family");
   } else if (profile.role && includesTerm(jobText, profile.role)) {
     scoreBreakdown.family = 14;
     reasons.push(`El aviso menciona el rol objetivo: ${profile.role}.`);
@@ -511,11 +599,13 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   if (profileSeniority && jobSeniority && profileSeniority === jobSeniority) {
     scoreBreakdown.seniority = 10;
     reasons.push(`El seniority visible parece compatible: ${profile.seniority}.`);
+    rulesFired.push(`seniority.${jobSeniorityDetection.rule}`);
   } else if (profileSeniority && jobSeniority) {
-    const levels = Object.keys(seniorityAliases);
+    const levels = seniorityOrder;
     const distance = Math.abs(levels.indexOf(profileSeniority) - levels.indexOf(jobSeniority));
     scoreBreakdown.seniority = distance === 1 ? 6 : 2;
     risks.push(`El seniority visible parece ${jobSeniority}, distinto de ${profile.seniority}.`);
+    rulesFired.push(`seniority.mismatch-${jobSeniorityDetection.rule}`);
   } else if (profileSeniority && !jobSeniority) {
     scoreBreakdown.seniority = 6;
     risks.push("El aviso no deja claro el seniority; conviene revisarlo en la descripción.");
@@ -546,7 +636,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     risks.push(languageRisk);
   }
 
-  const negativeRoleSignals = profileFamily?.negativeTerms && hasAnyTerm(jobText, profileFamily.negativeTerms);
+  const negativeRoleSignals = !hasSameFamily && profileFamily?.negativeTerms && hasAnyTerm(jobText, profileFamily.negativeTerms);
   let penalty = 0;
 
   if (languageRisk) {
@@ -577,6 +667,18 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     missingRequirements,
     requirementsByCriticality,
     scoreBreakdown,
+    debug: {
+      seniority: jobSeniorityDetection,
+      family: {
+        profile: profileFamily?.label || null,
+        title: titleFamily?.label || null,
+        detected: jobFamilies.map((family) => family.label),
+        conflict: familyConflict,
+        finalRule: hasSameFamily ? "same-family-wins" : hasDifferentKnownFamily ? "different-family" : "insufficient-family-signal",
+      },
+      scoreBreakdown,
+      rulesFired,
+    },
     recommendation:
       priority === "Alta"
         ? "Buen candidato para revisar primero. Confirmá requisitos finos de idioma, seniority y modalidad antes de postular."

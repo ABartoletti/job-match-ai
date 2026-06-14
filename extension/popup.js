@@ -32,6 +32,7 @@ function renderRequirementList(title, requirements) {
 
 function renderResult(result, job) {
   const debug = job.debug?.analysisText || job.debug?.description || {};
+  const matchDebug = result.debug || {};
   const breakdown = result.scoreBreakdown || {};
   const requirementGroups = result.requirementsByCriticality || {};
   resultBox.classList.remove("hidden");
@@ -68,11 +69,24 @@ function renderResult(result, job) {
     }
     ${
       result.missingRequirements?.length
-        ? `<h3>Requisitos no cubiertos</h3><p class="chips">${result.missingRequirements.map((item) => `<span>${item}</span>`).join("")}</p>`
+        ? `<h3>Requisitos no cubiertos</h3><p class="chips">${result.missingRequirements.map((item) => `<span>${item.name || item}</span>`).join("")}</p>`
         : ""
     }
     <h3>Recomendación</h3>
     <p>${result.recommendation || "Revisá el aviso completo antes de postular."}</p>
+    <details open>
+      <summary>Debug del análisis</summary>
+      <div class="debug-grid">
+        <span>Seniority título: ${matchDebug.seniority?.title || "No detectado"}</span>
+        <span>Seniority descripción: ${matchDebug.seniority?.description || "No detectado"}</span>
+        <span>Años detectados: ${matchDebug.seniority?.years ?? "No detectado"}</span>
+        <span>Regla final: ${matchDebug.seniority?.rule || "No disponible"}</span>
+        <span>Familia perfil: ${matchDebug.family?.profile || "No detectada"}</span>
+        <span>Familia aviso: ${(matchDebug.family?.detected || []).join(", ") || "No detectada"}</span>
+        <span>Conflicto familia: ${matchDebug.family?.conflict || "No"}</span>
+        <span>Reglas: ${(matchDebug.rulesFired || []).join(", ") || "Sin reglas"}</span>
+      </div>
+    </details>
     <details>
       <summary>Debug de captura</summary>
       <p class="muted">Primeros 500 caracteres</p>

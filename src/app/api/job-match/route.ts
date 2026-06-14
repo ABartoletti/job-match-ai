@@ -47,8 +47,9 @@ type MatchResult = {
   risks: string[];
   missingSkills: string[];
   matchedSkills?: string[];
-  detectedRequirements?: string[];
-  missingRequirements?: string[];
+  detectedRequirements?: RequirementMatch[];
+  missingRequirements?: RequirementMatch[];
+  requirementsByCriticality?: RequirementsByCriticality;
   scoreBreakdown?: ScoreBreakdown;
   recommendation: string;
   source: "openai" | "heuristic";
@@ -66,6 +67,27 @@ type ScoreBreakdown = {
   experience: number;
   family: number;
   seniority: number;
+};
+
+type RequirementCriticality = "required" | "important" | "nice-to-have";
+
+type RequirementDefinition = {
+  name: string;
+  aliases: string[];
+};
+
+type RequirementMatch = {
+  name: string;
+  criticality: RequirementCriticality;
+  matched: boolean;
+  weight: number;
+  evidence: string;
+};
+
+type RequirementsByCriticality = {
+  required: RequirementMatch[];
+  important: RequirementMatch[];
+  niceToHave: RequirementMatch[];
 };
 
 const roleFamilies: RoleFamily[] = [
@@ -147,7 +169,32 @@ const skillAliases: Record<string, string[]> = {
   typescript: ["typescript", "ts"],
   react: ["react", "react.js"],
   "node.js": ["node.js", "nodejs", "node"],
+  mongodb: ["mongodb", "mongo"],
+  arduino: ["arduino"],
+  microbit: ["microbit", "micro:bit"],
+  "performance testing": ["performance testing", "load testing", "stress testing", "jmeter"],
 };
+
+const requirementDefinitions: RequirementDefinition[] = [
+  { name: "Cypress", aliases: ["cypress"] },
+  { name: "Playwright", aliases: ["playwright"] },
+  { name: "TypeScript", aliases: ["typescript", "ts"] },
+  { name: "JavaScript", aliases: ["javascript", "js"] },
+  { name: "Python", aliases: ["python", "pytest"] },
+  { name: "Selenium", aliases: ["selenium", "webdriver"] },
+  { name: "SQL", aliases: ["sql", "postgresql", "mysql", "sql server", "queries"] },
+  { name: "Jira", aliases: ["jira", "atlassian"] },
+  { name: "Scrum", aliases: ["scrum", "agile", "kanban"] },
+  { name: "Postman", aliases: ["postman"] },
+  { name: "API Testing", aliases: ["api testing", "api tests", "apis", "rest api", "postman", "testing integrations"] },
+  { name: "Jenkins", aliases: ["jenkins", "ci/cd", "continuous integration"] },
+  { name: "Microservices", aliases: ["microservices", "micro services"] },
+  { name: "Unix/Linux", aliases: ["unix", "linux", "bash", "shell"] },
+  { name: "MongoDB", aliases: ["mongodb", "mongo"] },
+  { name: "Arduino", aliases: ["arduino"] },
+  { name: "Microbit", aliases: ["microbit", "micro:bit"] },
+  { name: "Performance Testing", aliases: ["performance testing", "load testing", "stress testing", "jmeter"] },
+];
 
 const seniorityAliases: Record<string, string[]> = {
   trainee: ["trainee", "intern", "practicante"],
@@ -236,19 +283,82 @@ function inferProfileYears(profile: ProfilePayload) {
   return null;
 }
 
-function detectRequirements(jobText: string) {
-  const checks: Array<[string, string[]]> = [
-    ["Experiencia en QA", ["qa experience", "quality assurance experience", "testing experience", "experiencia qa", "experiencia en testing"]],
-    ["Testing de APIs / integraciones", ["api", "apis", "postman", "integration", "integrations", "microservices"]],
-    ["SQL", ["sql", "queries", "database"]],
-    ["Python", ["python", "pytest"]],
-    ["Selenium", ["selenium", "webdriver"]],
-    ["Inglés", ["english", "ingl[eé]s", "b2", "b1", "c1", "c2", "fluent"]],
-    ["Unix/Linux", ["unix", "linux", "bash", "shell"]],
-    ["CI/CD", ["jenkins", "ci/cd", "continuous integration"]],
-  ];
+function getRequirementEvidence(text: string, aliases: string[]) {
+  const normalized = normalizeText(text);
+  const sentences = text
+    .split(/(?<=[.!?])\s+|\n|•|-/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
 
-  return checks.filter(([, terms]) => hasAnyTerm(jobText, terms)).map(([label]) => label);
+  const sentenceMatch = sentences.find((sentence) => hasAnyTerm(sentence, aliases));
+
+  if (sentenceMatch) {
+    return sentenceMatch.slice(0, 240);
+  }
+
+  const alias = aliases.find((item) => normalized.includes(normalizeText(item)));
+
+  if (!alias) {
+    return "";
+  }
+
+  const index = normalized.indexOf(normalizeText(alias));
+  const start = Math.max(0, index - 80);
+  const end = Math.min(text.length, index + alias.length + 120);
+
+  return text.slice(start, end).trim();
+}
+
+function classifyCriticality(evidence: string): RequirementCriticality {
+  if (/(excluyente|must have|required|mandatory|essential|obligatorio|imprescindible|exclusivo)/i.test(evidence)) {
+    return "required";
+  }
+
+  if (/(deseable|nice to have|nice-to-have|plus|preferred|preferido|valorado|bonus|ser[aá] un plus)/i.test(evidence)) {
+    return "nice-to-have";
+  }
+
+  return "important";
+}
+
+function requirementWeight(criticality: RequirementCriticality) {
+  if (criticality === "required") return 12;
+  if (criticality === "important") return 5;
+  return 2;
+}
+
+function profileCoversRequirement(profileSkillsText: string, requirement: RequirementDefinition) {
+  return hasAnyTerm(profileSkillsText, requirement.aliases) || requirement.aliases.some((alias) => skillMatches(profileSkillsText, alias));
+}
+
+function detectRequirements(jobText: string, profileSkillsText: string): RequirementMatch[] {
+  return requirementDefinitions
+    .map((definition) => {
+      const evidence = getRequirementEvidence(jobText, definition.aliases);
+
+      if (!evidence) {
+        return null;
+      }
+
+      const criticality = classifyCriticality(evidence);
+
+      return {
+        name: definition.name,
+        criticality,
+        matched: profileCoversRequirement(profileSkillsText, definition),
+        weight: requirementWeight(criticality),
+        evidence,
+      };
+    })
+    .filter((requirement): requirement is RequirementMatch => Boolean(requirement));
+}
+
+function groupRequirements(requirements: RequirementMatch[]): RequirementsByCriticality {
+  return {
+    required: requirements.filter((requirement) => requirement.criticality === "required"),
+    important: requirements.filter((requirement) => requirement.criticality === "important"),
+    niceToHave: requirements.filter((requirement) => requirement.criticality === "nice-to-have"),
+  };
 }
 
 function clampText(text: string, maxLength: number) {
@@ -312,16 +422,14 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   const jobSeniority = detectJobSeniority(jobText);
   const requiredYears = detectYearsOfExperience(jobText);
   const profileYears = inferProfileYears(profile);
-  const detectedRequirements = detectRequirements(jobText);
-  const missingRequirements = detectedRequirements.filter((requirement) => {
-    if (requirement === "SQL") return !skillMatches(profile.skills || "", "SQL");
-    if (requirement === "Python") return !skillMatches(profile.skills || "", "Python");
-    if (requirement === "Selenium") return !skillMatches(profile.skills || "", "Selenium");
-    if (requirement === "Testing de APIs / integraciones") return !skillMatches(profile.skills || "", "API Testing") && !skillMatches(profile.skills || "", "APIs") && !skillMatches(profile.skills || "", "Postman");
-    if (requirement === "Unix/Linux") return !skillMatches(profile.skills || "", "Unix");
-    if (requirement === "CI/CD") return !skillMatches(profile.skills || "", "Jenkins");
-    return false;
-  });
+  const detectedRequirements = detectRequirements(jobText, profile.skills || "");
+  const missingRequirements = detectedRequirements.filter((requirement) => !requirement.matched);
+  const requirementsByCriticality = groupRequirements(detectedRequirements);
+  const totalRequirementWeight = detectedRequirements.reduce((total, requirement) => total + requirement.weight, 0);
+  const coveredRequirementWeight = detectedRequirements
+    .filter((requirement) => requirement.matched)
+    .reduce((total, requirement) => total + requirement.weight, 0);
+  const missingRequiredRequirements = missingRequirements.filter((requirement) => requirement.criticality === "required");
   const scoreBreakdown: ScoreBreakdown = {
     skills: 0,
     experience: 0,
@@ -331,7 +439,21 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   const reasons: string[] = [];
   const risks: string[] = [];
 
-  if (matchedSkills.length > 0) {
+  if (totalRequirementWeight > 0) {
+    const coverageRatio = coveredRequirementWeight / totalRequirementWeight;
+    scoreBreakdown.skills = Math.round(coverageRatio * 40);
+    const coveredNames = detectedRequirements.filter((requirement) => requirement.matched).map((requirement) => requirement.name);
+
+    if (coveredNames.length > 0) {
+      reasons.push(`Requisitos cubiertos según criticidad: ${coveredNames.slice(0, 8).join(", ")}.`);
+    }
+
+    if (missingRequiredRequirements.length > 0) {
+      risks.push(
+        `Faltan requisitos excluyentes: ${missingRequiredRequirements.map((requirement) => requirement.name).join(", ")}.`,
+      );
+    }
+  } else if (matchedSkills.length > 0) {
     const skillRatio = skills.length > 0 ? matchedSkills.length / skills.length : 0;
     scoreBreakdown.skills = Math.min(40, Math.round(18 + skillRatio * 18 + Math.min(matchedSkills.length, 5)));
     reasons.push(`Coinciden skills/herramientas: ${matchedSkills.slice(0, 8).join(", ")}.`);
@@ -402,7 +524,12 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   }
 
   if (detectedRequirements.length > 0) {
-    reasons.push(`Requisitos detectados: ${detectedRequirements.slice(0, 8).join(", ")}.`);
+    reasons.push(
+      `Requisitos detectados: ${detectedRequirements
+        .slice(0, 8)
+        .map((requirement) => `${requirement.name} (${requirement.criticality})`)
+        .join(", ")}.`,
+    );
   }
 
   if (profile.location && job.location && includesTerm(job.location, profile.location)) {
@@ -426,6 +553,10 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     penalty += 8;
   }
 
+  if (missingRequiredRequirements.length > 0) {
+    penalty += Math.min(24, missingRequiredRequirements.length * 10);
+  }
+
   if (negativeRoleSignals) {
     penalty += 18;
     risks.push("El aviso contiene señales de una familia laboral distinta al rol objetivo.");
@@ -444,6 +575,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     matchedSkills,
     detectedRequirements,
     missingRequirements,
+    requirementsByCriticality,
     scoreBreakdown,
     recommendation:
       priority === "Alta"
@@ -484,6 +616,8 @@ async function openAiMatch(profile: ProfilePayload, job: JobPayload): Promise<Ma
           "Evalúa similitud profesional por familias de roles, no igualdad textual exacta.",
           "Ejemplos: QA Automation, QA Analyst, Test Automation Engineer, Quality Assurance Engineer y SDET pertenecen a la familia QA.",
           "Usa ponderación aproximada: skills/herramientas 40%, experiencia requerida 30%, familia profesional 20%, seniority 10%.",
+          "Clasifica requisitos por criticidad: required si dice Excluyente/Must Have/Required/Mandatory/Essential; important si es herramienta principal; nice-to-have si dice Deseable/Nice to Have/Plus/Preferred.",
+          "Faltar requisitos required debe impactar mucho más que faltar requisitos nice-to-have.",
           "Explica skills coincidentes, requisitos detectados y riesgos reales. No digas que el rol no está alineado si hay fuerte coincidencia de skills y familia QA.",
           "Si hay idioma requerido o implícito, marca riesgo si el perfil no alcanza.",
           'Devuelve JSON con: {"priority":"Alta|Media|Baja|Revisar","score":0-100,"reasons":[""],"risks":[""],"missingSkills":[""],"recommendation":""}.',

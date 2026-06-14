@@ -10,9 +10,30 @@ function setStatus(message) {
   statusBox.textContent = message;
 }
 
+function renderRequirementList(title, requirements) {
+  if (!requirements?.length) return "";
+
+  return `
+    <h3>${title}</h3>
+    <ul class="requirements">
+      ${requirements
+        .map(
+          (requirement) => `
+            <li class="${requirement.matched ? "ok" : "missing"}">
+              <strong>${requirement.matched ? "✓" : "✗"} ${requirement.name}</strong>
+              <span>${requirement.evidence || ""}</span>
+            </li>
+          `,
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
 function renderResult(result, job) {
   const debug = job.debug?.analysisText || job.debug?.description || {};
   const breakdown = result.scoreBreakdown || {};
+  const requirementGroups = result.requirementsByCriticality || {};
   resultBox.classList.remove("hidden");
   resultBox.innerHTML = `
     <div class="score">
@@ -32,6 +53,9 @@ function renderResult(result, job) {
     <ul>${(result.reasons || []).map((item) => `<li>${item}</li>`).join("")}</ul>
     <h3>Riesgos a revisar</h3>
     <ul>${(result.risks || []).map((item) => `<li>${item}</li>`).join("")}</ul>
+    ${renderRequirementList("Requisitos excluyentes", requirementGroups.required)}
+    ${renderRequirementList("Requisitos importantes", requirementGroups.important)}
+    ${renderRequirementList("Requisitos deseables", requirementGroups.niceToHave)}
     ${
       result.matchedSkills?.length
         ? `<h3>Skills detectadas</h3><p class="chips">${result.matchedSkills.map((skill) => `<span>${skill}</span>`).join("")}</p>`

@@ -11,6 +11,8 @@ function setStatus(message) {
 }
 
 function renderResult(result, job) {
+  const debug = job.debug?.analysisText || job.debug?.description || {};
+  const breakdown = result.scoreBreakdown || {};
   resultBox.classList.remove("hidden");
   resultBox.innerHTML = `
     <div class="score">
@@ -19,18 +21,41 @@ function renderResult(result, job) {
     </div>
     <h2>${job.title || "Puesto visible"}</h2>
     <p class="muted">${[job.company, job.location].filter(Boolean).join(" · ")}</p>
-    <p class="capture">${job.description ? "Descripción capturada" : "Solo datos visibles parciales"} · ${job.criteria?.length || 0} criterio${job.criteria?.length === 1 ? "" : "s"} visible${job.criteria?.length === 1 ? "" : "s"}</p>
+    <p class="capture">${job.description ? "Descripción capturada" : "Solo datos visibles parciales"} · ${debug.characters || 0} caracteres · ${debug.words || 0} palabras · ${job.criteria?.length || 0} criterio${job.criteria?.length === 1 ? "" : "s"} visible${job.criteria?.length === 1 ? "" : "s"}</p>
+    <div class="breakdown">
+      <span>Skills ${breakdown.skills ?? "-"}/40</span>
+      <span>Experiencia ${breakdown.experience ?? "-"}/30</span>
+      <span>Familia ${breakdown.family ?? "-"}/20</span>
+      <span>Seniority ${breakdown.seniority ?? "-"}/10</span>
+    </div>
     <h3>Por qué puede encajar</h3>
     <ul>${(result.reasons || []).map((item) => `<li>${item}</li>`).join("")}</ul>
     <h3>Riesgos a revisar</h3>
     <ul>${(result.risks || []).map((item) => `<li>${item}</li>`).join("")}</ul>
     ${
+      result.matchedSkills?.length
+        ? `<h3>Skills detectadas</h3><p class="chips">${result.matchedSkills.map((skill) => `<span>${skill}</span>`).join("")}</p>`
+        : ""
+    }
+    ${
       result.missingSkills?.length
         ? `<h3>Skills no visibles</h3><p class="chips">${result.missingSkills.map((skill) => `<span>${skill}</span>`).join("")}</p>`
         : ""
     }
+    ${
+      result.missingRequirements?.length
+        ? `<h3>Requisitos no cubiertos</h3><p class="chips">${result.missingRequirements.map((item) => `<span>${item}</span>`).join("")}</p>`
+        : ""
+    }
     <h3>Recomendación</h3>
     <p>${result.recommendation || "Revisá el aviso completo antes de postular."}</p>
+    <details>
+      <summary>Debug de captura</summary>
+      <p class="muted">Primeros 500 caracteres</p>
+      <pre>${debug.first500 || "Sin texto capturado"}</pre>
+      <p class="muted">Últimos 500 caracteres</p>
+      <pre>${debug.last500 || "Sin texto capturado"}</pre>
+    </details>
     <p class="muted">Análisis: ${result.source}</p>
   `;
 }

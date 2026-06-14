@@ -21,6 +21,47 @@ function uniqueTexts(selector, limit = 10) {
     .slice(0, limit);
 }
 
+function textStats(text) {
+  const clean = cleanText(text);
+  const words = clean ? clean.split(/\s+/).length : 0;
+
+  return {
+    characters: clean.length,
+    words,
+    first500: clean.slice(0, 500),
+    last500: clean.slice(Math.max(0, clean.length - 500)),
+  };
+}
+
+function extractSections(description) {
+  const sectionLabels = {
+    requirements: /(requirements|requisitos|qualifications|what you need|must have|skills requeridas|conocimientos)/i,
+    responsibilities: /(responsibilities|responsabilidades|what you will do|funciones|tareas|role overview)/i,
+    benefits: /(benefits|beneficios|what we offer|ofrecemos|perks)/i,
+  };
+  const sections = {
+    requirements: "",
+    responsibilities: "",
+    benefits: "",
+  };
+  const parts = description.split(/(?=(?:requirements|requisitos|qualifications|responsibilities|responsabilidades|benefits|beneficios|what you will do|what we offer|ofrecemos)\b)/i);
+
+  for (const part of parts) {
+    const text = cleanText(part);
+    if (!text) continue;
+
+    if (sectionLabels.requirements.test(text) && !sections.requirements) {
+      sections.requirements = text.slice(0, 2500);
+    } else if (sectionLabels.responsibilities.test(text) && !sections.responsibilities) {
+      sections.responsibilities = text.slice(0, 2500);
+    } else if (sectionLabels.benefits.test(text) && !sections.benefits) {
+      sections.benefits = text.slice(0, 2000);
+    }
+  }
+
+  return sections;
+}
+
 function firstMeaningfulText(selectors) {
   for (const selector of selectors) {
     const text = textFrom(selector);
@@ -54,22 +95,48 @@ function extractJobFromVisiblePage() {
 
   const descriptionElement =
     document.querySelector(".jobs-description__content") ||
+    document.querySelector(".jobs-description") ||
     document.querySelector(".jobs-box__html-content") ||
+    document.querySelector(".jobs-description-content__text") ||
     document.querySelector("#job-details");
 
   const description = descriptionElement ? cleanText(descriptionElement.textContent).slice(0, 9000) : "";
+  const sections = extractSections(description);
   const workplaceInsights = uniqueTexts(".job-details-fit-level-preferences button, .job-details-fit-level-preferences li, .jobs-unified-top-card__job-insight, .job-details-jobs-unified-top-card__job-insight", 12);
   const criteria = uniqueTexts(".job-details-how-you-match-card__container li, .job-details-how-you-match-card__container span, .jobs-details-job-summary__text", 12);
   const visibleSummary = [title, company, location, ...workplaceInsights, ...criteria].filter(Boolean).join(" · ");
+  const analysisText = [
+    title,
+    company,
+    location,
+    description,
+    sections.requirements,
+    sections.responsibilities,
+    sections.benefits,
+    ...workplaceInsights,
+    ...criteria,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return {
     title,
     company,
     location,
     description: description || visibleSummary,
+    requirements: sections.requirements,
+    responsibilities: sections.responsibilities,
+    benefits: sections.benefits,
     visibleSummary,
     workplaceInsights,
     criteria,
+    debug: {
+      description: textStats(description),
+      analysisText: textStats(analysisText),
+      selectors: {
+        descriptionFound: Boolean(descriptionElement),
+      },
+    },
     sourceUrl: window.location.href,
   };
 }

@@ -15,10 +15,24 @@ type JobPayload = {
   company?: string;
   location?: string;
   description?: string;
+  requirements?: string;
+  responsibilities?: string;
+  benefits?: string;
   visibleSummary?: string;
   workplaceInsights?: string[];
   criteria?: string[];
+  debug?: {
+    description?: TextDebug;
+    analysisText?: TextDebug;
+  };
   sourceUrl?: string;
+};
+
+type TextDebug = {
+  characters?: number;
+  words?: number;
+  first500?: string;
+  last500?: string;
 };
 
 type MatchRequest = {
@@ -32,6 +46,10 @@ type MatchResult = {
   reasons: string[];
   risks: string[];
   missingSkills: string[];
+  matchedSkills?: string[];
+  detectedRequirements?: string[];
+  missingRequirements?: string[];
+  scoreBreakdown?: ScoreBreakdown;
   recommendation: string;
   source: "openai" | "heuristic";
 };
@@ -44,8 +62,9 @@ type RoleFamily = {
 };
 
 type ScoreBreakdown = {
-  role: number;
   skills: number;
+  experience: number;
+  family: number;
   seniority: number;
 };
 
@@ -106,15 +125,22 @@ const roleFamilies: RoleFamily[] = [
 ];
 
 const skillAliases: Record<string, string[]> = {
-  "api testing": ["api testing", "api tests", "testing api", "testing apis", "rest api", "apis", "postman", "soapui"],
+  "api testing": ["api testing", "api tests", "testing api", "testing apis", "api test", "api tests", "rest api", "apis", "postman", "soapui"],
+  postman: ["postman", "api client"],
+  apis: ["api", "apis", "rest", "restful", "web services", "services integration"],
   testing: ["testing", "test cases", "test plan", "test execution", "quality assurance", "qa"],
+  "testing automation": ["testing automation", "test automation", "automation testing", "automated testing", "automated tests"],
   automation: ["automation", "automated tests", "test automation", "automation testing"],
   sql: ["sql", "postgresql", "mysql", "sql server", "queries"],
   python: ["python", "pytest"],
+  jenkins: ["jenkins", "ci/cd", "ci cd", "continuous integration"],
   jira: ["jira", "atlassian"],
   scrum: ["scrum", "agile", "kanban"],
   github: ["github", "git", "gitlab", "version control"],
   selenium: ["selenium", "webdriver"],
+  integrations: ["integration", "integrations", "testing integrations", "microservices", "services integration"],
+  microservices: ["microservices", "micro services", "distributed services"],
+  unix: ["unix", "linux", "shell", "bash"],
   cypress: ["cypress"],
   playwright: ["playwright"],
   javascript: ["javascript", "js"],
@@ -191,6 +217,40 @@ function detectJobSeniority(jobText: string) {
   return Object.keys(seniorityAliases).find((level) => hasAnyTerm(jobText, seniorityAliases[level])) || "";
 }
 
+function detectYearsOfExperience(text: string) {
+  const normalized = normalizeText(text);
+  const matches = Array.from(normalized.matchAll(/(\d+)\s*\+?\s*(?:years|year|anos|ano|yrs)/g));
+  const numbers = matches.map((match) => Number.parseInt(match[1], 10)).filter((value) => Number.isFinite(value));
+  return numbers.length ? Math.max(...numbers) : null;
+}
+
+function inferProfileYears(profile: ProfilePayload) {
+  const seniority = normalizeSeniority(profile.seniority);
+
+  if (seniority === "trainee") return 0;
+  if (seniority === "junior") return 1;
+  if (seniority === "semi senior") return 3;
+  if (seniority === "senior") return 5;
+  if (seniority === "lead") return 7;
+
+  return null;
+}
+
+function detectRequirements(jobText: string) {
+  const checks: Array<[string, string[]]> = [
+    ["Experiencia en QA", ["qa experience", "quality assurance experience", "testing experience", "experiencia qa", "experiencia en testing"]],
+    ["Testing de APIs / integraciones", ["api", "apis", "postman", "integration", "integrations", "microservices"]],
+    ["SQL", ["sql", "queries", "database"]],
+    ["Python", ["python", "pytest"]],
+    ["Selenium", ["selenium", "webdriver"]],
+    ["Inglés", ["english", "ingl[eé]s", "b2", "b1", "c1", "c2", "fluent"]],
+    ["Unix/Linux", ["unix", "linux", "bash", "shell"]],
+    ["CI/CD", ["jenkins", "ci/cd", "continuous integration"]],
+  ];
+
+  return checks.filter(([, terms]) => hasAnyTerm(jobText, terms)).map(([label]) => label);
+}
+
 function clampText(text: string, maxLength: number) {
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
@@ -230,6 +290,9 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     job.company,
     job.location,
     description,
+    job.requirements,
+    job.responsibilities,
+    job.benefits,
     job.visibleSummary,
     ...(job.workplaceInsights || []),
     ...(job.criteria || []),
@@ -247,62 +310,99 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   const hasDifferentKnownFamily = Boolean(profileFamily && jobFamilies.length > 0 && !hasSameFamily);
   const profileSeniority = normalizeSeniority(profile.seniority);
   const jobSeniority = detectJobSeniority(jobText);
+  const requiredYears = detectYearsOfExperience(jobText);
+  const profileYears = inferProfileYears(profile);
+  const detectedRequirements = detectRequirements(jobText);
+  const missingRequirements = detectedRequirements.filter((requirement) => {
+    if (requirement === "SQL") return !skillMatches(profile.skills || "", "SQL");
+    if (requirement === "Python") return !skillMatches(profile.skills || "", "Python");
+    if (requirement === "Selenium") return !skillMatches(profile.skills || "", "Selenium");
+    if (requirement === "Testing de APIs / integraciones") return !skillMatches(profile.skills || "", "API Testing") && !skillMatches(profile.skills || "", "APIs") && !skillMatches(profile.skills || "", "Postman");
+    if (requirement === "Unix/Linux") return !skillMatches(profile.skills || "", "Unix");
+    if (requirement === "CI/CD") return !skillMatches(profile.skills || "", "Jenkins");
+    return false;
+  });
   const scoreBreakdown: ScoreBreakdown = {
-    role: 0,
     skills: 0,
+    experience: 0,
+    family: 0,
     seniority: 0,
   };
   const reasons: string[] = [];
   const risks: string[] = [];
 
-  if (profile.role && hasTitleFamilyMatch) {
-    scoreBreakdown.role = 40;
-    reasons.push(
-      profileFamily
-        ? `El puesto pertenece a la misma familia profesional ${profileFamily.label}, aunque use una denominación específica distinta.`
-        : `El título se alinea con el rol objetivo: ${profile.role}.`,
-    );
-  } else if (profile.role && hasSameFamily) {
-    scoreBreakdown.role = 32;
-    reasons.push(`El aviso comparte la familia profesional ${profileFamily?.label} con tu rol objetivo.`);
-  } else if (profile.role && includesTerm(jobText, profile.role)) {
-    scoreBreakdown.role = 28;
-    reasons.push(`El aviso menciona el rol objetivo: ${profile.role}.`);
-  } else if (profile.role && hasDifferentKnownFamily) {
-    scoreBreakdown.role = 6;
-    risks.push(`El aviso parece pertenecer a otra familia profesional: ${jobFamilies.map((family) => family.label).join(", ")}.`);
-  } else if (profile.role) {
-    scoreBreakdown.role = 14;
-    risks.push(`No hay señales suficientes para confirmar que el rol pertenece a la misma familia que ${profile.role}.`);
-  } else {
-    risks.push("No hay rol objetivo cargado para comparar la familia profesional.");
-  }
-
   if (matchedSkills.length > 0) {
     const skillRatio = skills.length > 0 ? matchedSkills.length / skills.length : 0;
-    scoreBreakdown.skills = Math.min(40, Math.round(16 + skillRatio * 24 + Math.min(matchedSkills.length, 4) * 2));
-    reasons.push(`El puesto comparte competencias clave con tu perfil: ${matchedSkills.slice(0, 6).join(", ")}.`);
+    scoreBreakdown.skills = Math.min(40, Math.round(18 + skillRatio * 18 + Math.min(matchedSkills.length, 5)));
+    reasons.push(`Coinciden skills/herramientas: ${matchedSkills.slice(0, 8).join(", ")}.`);
   } else if (skills.length > 0) {
     scoreBreakdown.skills = 6;
     risks.push("No se detectaron coincidencias claras con las skills priorizadas o detectadas del CV.");
   } else {
-    scoreBreakdown.skills = 10;
+    scoreBreakdown.skills = 8;
     risks.push("No hay skills cargadas para comparar contra el aviso.");
   }
 
+  if (requiredYears !== null && profileYears !== null && profileYears >= requiredYears) {
+    scoreBreakdown.experience = 30;
+    reasons.push(`La experiencia requerida detectada (${requiredYears}+ años) parece compatible con el seniority/perfil cargado.`);
+  } else if (requiredYears !== null && profileYears !== null && profileYears + 1 >= requiredYears) {
+    scoreBreakdown.experience = 22;
+    risks.push(`La experiencia requerida (${requiredYears}+ años) queda cerca del nivel estimado del perfil.`);
+  } else if (requiredYears !== null && profileYears !== null) {
+    scoreBreakdown.experience = 8;
+    risks.push(`El aviso pide ${requiredYears}+ años y el seniority cargado podría quedar corto.`);
+  } else if (requiredYears !== null) {
+    scoreBreakdown.experience = 18;
+    reasons.push(`El aviso explicita experiencia requerida (${requiredYears}+ años); validalo contra el CV.`);
+  } else if (hasSameFamily || matchedSkills.length >= 2) {
+    scoreBreakdown.experience = 20;
+    risks.push("No se detectó una cantidad clara de años requeridos; se usa el resto de señales del aviso.");
+  } else {
+    scoreBreakdown.experience = 10;
+    risks.push("No se detectaron señales fuertes de experiencia requerida.");
+  }
+
+  if (profile.role && hasTitleFamilyMatch) {
+    scoreBreakdown.family = 20;
+    reasons.push(`El puesto pertenece a la misma familia profesional ${profileFamily?.label}.`);
+  } else if (profile.role && hasSameFamily) {
+    scoreBreakdown.family = 16;
+    reasons.push(`El aviso comparte la familia profesional ${profileFamily?.label} con tu rol objetivo.`);
+  } else if (profile.role && includesTerm(jobText, profile.role)) {
+    scoreBreakdown.family = 14;
+    reasons.push(`El aviso menciona el rol objetivo: ${profile.role}.`);
+  } else if (profile.role && hasDifferentKnownFamily) {
+    scoreBreakdown.family = 3;
+    risks.push(`El aviso parece pertenecer a otra familia profesional: ${jobFamilies.map((family) => family.label).join(", ")}.`);
+  } else if (profile.role) {
+    scoreBreakdown.family = matchedSkills.length >= 3 ? 12 : 7;
+    if (matchedSkills.length >= 3) {
+      reasons.push("Aunque el título no sea idéntico, las competencias detectadas sostienen afinidad profesional.");
+    } else {
+      risks.push(`No hay señales suficientes para confirmar que el rol pertenece a la misma familia que ${profile.role}.`);
+    }
+  } else {
+    risks.push("No hay rol objetivo cargado para comparar la familia profesional.");
+  }
+
   if (profileSeniority && jobSeniority && profileSeniority === jobSeniority) {
-    scoreBreakdown.seniority = 20;
+    scoreBreakdown.seniority = 10;
     reasons.push(`El seniority visible parece compatible: ${profile.seniority}.`);
   } else if (profileSeniority && jobSeniority) {
     const levels = Object.keys(seniorityAliases);
     const distance = Math.abs(levels.indexOf(profileSeniority) - levels.indexOf(jobSeniority));
-    scoreBreakdown.seniority = distance === 1 ? 12 : 4;
+    scoreBreakdown.seniority = distance === 1 ? 6 : 2;
     risks.push(`El seniority visible parece ${jobSeniority}, distinto de ${profile.seniority}.`);
   } else if (profileSeniority && !jobSeniority) {
-    scoreBreakdown.seniority = 12;
+    scoreBreakdown.seniority = 6;
     risks.push("El aviso no deja claro el seniority; conviene revisarlo en la descripción.");
   } else {
-    scoreBreakdown.seniority = 10;
+    scoreBreakdown.seniority = 5;
+  }
+
+  if (detectedRequirements.length > 0) {
+    reasons.push(`Requisitos detectados: ${detectedRequirements.slice(0, 8).join(", ")}.`);
   }
 
   if (profile.location && job.location && includesTerm(job.location, profile.location)) {
@@ -331,7 +431,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     risks.push("El aviso contiene señales de una familia laboral distinta al rol objetivo.");
   }
 
-  const score = scoreBreakdown.role + scoreBreakdown.skills + scoreBreakdown.seniority - penalty;
+  const score = scoreBreakdown.skills + scoreBreakdown.experience + scoreBreakdown.family + scoreBreakdown.seniority - penalty;
   const normalizedScore = Math.max(0, Math.min(100, score));
   const priority = getPriority(normalizedScore);
 
@@ -341,6 +441,10 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     reasons: reasons.length ? reasons : ["Hay datos suficientes para una revisión inicial, pero faltan señales fuertes de encaje."],
     risks: risks.length ? risks : ["No se detectaron riesgos fuertes con la información visible."],
     missingSkills,
+    matchedSkills,
+    detectedRequirements,
+    missingRequirements,
+    scoreBreakdown,
     recommendation:
       priority === "Alta"
         ? "Buen candidato para revisar primero. Confirmá requisitos finos de idioma, seniority y modalidad antes de postular."
@@ -379,7 +483,8 @@ async function openAiMatch(profile: ProfilePayload, job: JobPayload): Promise<Ma
           "Prioriza el rol objetivo y la última intención del usuario por encima de experiencia histórica no alineada.",
           "Evalúa similitud profesional por familias de roles, no igualdad textual exacta.",
           "Ejemplos: QA Automation, QA Analyst, Test Automation Engineer, Quality Assurance Engineer y SDET pertenecen a la familia QA.",
-          "Usa ponderación aproximada: rol/familia 40%, skills 40%, seniority 20%.",
+          "Usa ponderación aproximada: skills/herramientas 40%, experiencia requerida 30%, familia profesional 20%, seniority 10%.",
+          "Explica skills coincidentes, requisitos detectados y riesgos reales. No digas que el rol no está alineado si hay fuerte coincidencia de skills y familia QA.",
           "Si hay idioma requerido o implícito, marca riesgo si el perfil no alcanza.",
           'Devuelve JSON con: {"priority":"Alta|Media|Baja|Revisar","score":0-100,"reasons":[""],"risks":[""],"missingSkills":[""],"recommendation":""}.',
           "Perfil:",
@@ -388,6 +493,9 @@ async function openAiMatch(profile: ProfilePayload, job: JobPayload): Promise<Ma
           JSON.stringify({
             ...job,
             description: clampText(job.description || "", 9000),
+            requirements: clampText(job.requirements || "", 2500),
+            responsibilities: clampText(job.responsibilities || "", 2500),
+            benefits: clampText(job.benefits || "", 1500),
             visibleSummary: clampText(job.visibleSummary || "", 2000),
           }),
         ].join("\n"),

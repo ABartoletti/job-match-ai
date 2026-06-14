@@ -19,6 +19,7 @@ function renderResult(result, job) {
     </div>
     <h2>${job.title || "Puesto visible"}</h2>
     <p class="muted">${[job.company, job.location].filter(Boolean).join(" · ")}</p>
+    <p class="capture">${job.description ? "Descripción capturada" : "Solo datos visibles parciales"} · ${job.criteria?.length || 0} criterio${job.criteria?.length === 1 ? "" : "s"} visible${job.criteria?.length === 1 ? "" : "s"}</p>
     <h3>Por qué puede encajar</h3>
     <ul>${(result.reasons || []).map((item) => `<li>${item}</li>`).join("")}</ul>
     <h3>Riesgos a revisar</h3>

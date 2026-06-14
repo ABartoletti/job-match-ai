@@ -136,6 +136,15 @@ button:first-child {
   font-size: 12px;
 }
 
+.capture {
+  margin-top: 8px;
+  border-radius: 10px;
+  background: rgba(34, 211, 238, 0.08);
+  color: #bae6fd;
+  font-size: 12px;
+  padding: 8px;
+}
+
 ul {
   margin: 8px 0 0;
   padding-left: 18px;

@@ -8,6 +8,33 @@ type ProfilePayload = {
   seniority?: string;
   skills?: string;
   language?: string;
+  headline?: string;
+  summary?: string;
+  totalYears?: number | null;
+  currentRole?: string;
+  targetRole?: string;
+  experiences?: CvExperiencePayload[];
+  skillGroups?: CvSkillGroupsPayload;
+  education?: string[];
+  certifications?: string[];
+  industries?: string[];
+  evidence?: string[];
+  rawCvText?: string;
+};
+
+type CvExperiencePayload = {
+  title?: string;
+  company?: string;
+  period?: string;
+  description?: string;
+};
+
+type CvSkillGroupsPayload = {
+  technical?: string[];
+  tools?: string[];
+  testing?: string[];
+  languages?: string[];
+  methodologies?: string[];
 };
 
 type JobPayload = {
@@ -240,6 +267,62 @@ function parseSkills(skills = "") {
     .filter(Boolean);
 }
 
+function uniqueValues(values: string[]) {
+  const seen = new Set<string>();
+
+  return values.filter((value) => {
+    const clean = value.trim();
+    const key = normalizeText(clean);
+
+    if (!clean || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function collectProfileSkills(profile: ProfilePayload) {
+  const groupedSkills = profile.skillGroups
+    ? [
+        ...(profile.skillGroups.technical || []),
+        ...(profile.skillGroups.tools || []),
+        ...(profile.skillGroups.testing || []),
+        ...(profile.skillGroups.languages || []),
+        ...(profile.skillGroups.methodologies || []),
+      ]
+    : [];
+
+  return uniqueValues([...parseSkills(profile.skills), ...groupedSkills]);
+}
+
+function collectProfileEvidenceText(profile: ProfilePayload, skills: string[]) {
+  return [
+    profile.role,
+    profile.targetRole,
+    profile.currentRole,
+    profile.headline,
+    profile.summary,
+    profile.seniority,
+    profile.language,
+    skills.join(", "),
+    ...(profile.education || []),
+    ...(profile.certifications || []),
+    ...(profile.industries || []),
+    ...(profile.evidence || []),
+    ...(profile.experiences || []).flatMap((experience) => [
+      experience.title,
+      experience.company,
+      experience.period,
+      experience.description,
+    ]),
+    profile.rawCvText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function includesTerm(text: string, term: string) {
   return text.toLowerCase().includes(term.toLowerCase());
 }
@@ -346,6 +429,10 @@ function detectYearsOfExperience(text: string) {
 }
 
 function inferProfileYears(profile: ProfilePayload) {
+  if (typeof profile.totalYears === "number" && Number.isFinite(profile.totalYears)) {
+    return profile.totalYears;
+  }
+
   const seniority = normalizeSeniority(profile.seniority);
 
   if (seniority === "trainee") return 0;
@@ -485,10 +572,12 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   ]
     .filter(Boolean)
     .join("\n");
-  const skills = parseSkills(profile.skills);
+  const skills = collectProfileSkills(profile);
+  const profileText = collectProfileEvidenceText(profile, skills);
+  const profileRole = profile.targetRole || profile.role || profile.currentRole || "";
   const matchedSkills = skills.filter((skill) => skillMatches(jobText, skill));
   const missingSkills = skills.filter((skill) => !skillMatches(jobText, skill)).slice(0, 6);
-  const profileFamily = detectRoleFamily(profile.role);
+  const profileFamily = detectRoleFamily(profileRole);
   const jobFamilies = detectJobFamilies([title, description].join("\n"));
   const titleFamily = detectRoleFamily(title);
   const hasSameFamily = Boolean(profileFamily && jobFamilies.some((family) => family.id === profileFamily.id));
@@ -499,7 +588,7 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
   const jobSeniority = jobSeniorityDetection.final;
   const requiredYears = detectYearsOfExperience(jobText);
   const profileYears = inferProfileYears(profile);
-  const detectedRequirements = detectRequirements(jobText, profile.skills || "");
+  const detectedRequirements = detectRequirements(jobText, profileText);
   const missingRequirements = detectedRequirements.filter((requirement) => !requirement.matched);
   const requirementsByCriticality = groupRequirements(detectedRequirements);
   const totalRequirementWeight = detectedRequirements.reduce((total, requirement) => total + requirement.weight, 0);
@@ -571,26 +660,26 @@ function heuristicMatch(profile: ProfilePayload, job: JobPayload): MatchResult {
     risks.push("No se detectaron señales fuertes de experiencia requerida.");
   }
 
-  if (profile.role && hasTitleFamilyMatch) {
+  if (profileRole && hasTitleFamilyMatch) {
     scoreBreakdown.family = 20;
     reasons.push(`El puesto pertenece a la misma familia profesional ${profileFamily?.label}.`);
     rulesFired.push("family.title-match");
-  } else if (profile.role && hasSameFamily) {
+  } else if (profileRole && hasSameFamily) {
     scoreBreakdown.family = 16;
     reasons.push(`El aviso comparte la familia profesional ${profileFamily?.label} con tu rol objetivo.`);
     rulesFired.push("family.same-family");
-  } else if (profile.role && includesTerm(jobText, profile.role)) {
+  } else if (profileRole && includesTerm(jobText, profileRole)) {
     scoreBreakdown.family = 14;
-    reasons.push(`El aviso menciona el rol objetivo: ${profile.role}.`);
-  } else if (profile.role && hasDifferentKnownFamily) {
+    reasons.push(`El aviso menciona el rol objetivo: ${profileRole}.`);
+  } else if (profileRole && hasDifferentKnownFamily) {
     scoreBreakdown.family = 3;
     risks.push(`El aviso parece pertenecer a otra familia profesional: ${jobFamilies.map((family) => family.label).join(", ")}.`);
-  } else if (profile.role) {
+  } else if (profileRole) {
     scoreBreakdown.family = matchedSkills.length >= 3 ? 12 : 7;
     if (matchedSkills.length >= 3) {
       reasons.push("Aunque el título no sea idéntico, las competencias detectadas sostienen afinidad profesional.");
     } else {
-      risks.push(`No hay señales suficientes para confirmar que el rol pertenece a la misma familia que ${profile.role}.`);
+      risks.push(`No hay señales suficientes para confirmar que el rol pertenece a la misma familia que ${profileRole}.`);
     }
   } else {
     risks.push("No hay rol objetivo cargado para comparar la familia profesional.");

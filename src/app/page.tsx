@@ -21,6 +21,21 @@ type SearchSuggestion = {
   group: string;
 };
 
+type CvExperience = {
+  title: string;
+  company: string;
+  period: string;
+  description: string;
+};
+
+type CvSkillGroups = {
+  technical: string[];
+  tools: string[];
+  testing: string[];
+  languages: string[];
+  methodologies: string[];
+};
+
 type CvProfile = {
   role: string;
   location: string;
@@ -28,6 +43,18 @@ type CvProfile = {
   seniority: string;
   skills: string;
   language: string;
+  headline?: string;
+  summary?: string;
+  totalYears?: number | null;
+  currentRole?: string;
+  targetRole?: string;
+  experiences?: CvExperience[];
+  skillGroups?: CvSkillGroups;
+  education?: string[];
+  certifications?: string[];
+  industries?: string[];
+  evidence?: string[];
+  rawCvText?: string;
 };
 
 type CvVersion = {
@@ -55,6 +82,14 @@ const initialFilters: SearchFilters = {
   seniority: "",
   skills: "",
   language: "No especificado",
+};
+
+const emptySkillGroups: CvSkillGroups = {
+  technical: [],
+  tools: [],
+  testing: [],
+  languages: [],
+  methodologies: [],
 };
 
 const rolePatterns: Array<[RegExp, string]> = [
@@ -143,6 +178,18 @@ const skillDictionary = [
   "CSS",
   "Tailwind",
   "Next.js",
+  "API Testing",
+  "Postman",
+  "Jenkins",
+  "CI/CD",
+  "Microservices",
+  "Unix",
+  "Linux",
+  "Manual Testing",
+  "Regression Testing",
+  "Test Automation",
+  "REST API",
+  "Agile",
 ];
 
 function parseSkills(skills: string) {
@@ -165,6 +212,67 @@ function mergeSkills(...skillSources: string[]) {
     seen.add(key);
     return true;
   });
+}
+
+function uniqueValues(values: string[]) {
+  const seen = new Set<string>();
+
+  return values.filter((value) => {
+    const clean = value.trim();
+    const key = clean.toLowerCase();
+
+    if (!clean || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return uniqueValues(value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean));
+}
+
+function normalizeExperiences(value: unknown): CvExperience[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const entry = item as Partial<CvExperience>;
+
+      return {
+        title: typeof entry.title === "string" ? entry.title.trim() : "",
+        company: typeof entry.company === "string" ? entry.company.trim() : "",
+        period: typeof entry.period === "string" ? entry.period.trim() : "",
+        description: typeof entry.description === "string" ? entry.description.trim() : "",
+      };
+    })
+    .filter((item): item is CvExperience => Boolean(item && (item.title || item.company || item.description)));
+}
+
+function normalizeSkillGroups(value: CvSkillGroups | undefined): CvSkillGroups {
+  if (!value) {
+    return emptySkillGroups;
+  }
+
+  return {
+    technical: normalizeStringArray(value.technical),
+    tools: normalizeStringArray(value.tools),
+    testing: normalizeStringArray(value.testing),
+    languages: normalizeStringArray(value.languages),
+    methodologies: normalizeStringArray(value.methodologies),
+  };
 }
 
 function linkedinSearchUrl(query: string) {
@@ -193,6 +301,18 @@ function normalizeProfile(profile: Partial<CvProfile> | null | undefined): CvPro
     seniority: profile?.seniority || initialFilters.seniority,
     skills: profile?.skills || initialFilters.skills,
     language: profile?.language || initialFilters.language,
+    headline: profile?.headline || "",
+    summary: profile?.summary || "",
+    totalYears: profile?.totalYears ?? null,
+    currentRole: profile?.currentRole || "",
+    targetRole: profile?.targetRole || "",
+    experiences: normalizeExperiences(profile?.experiences),
+    skillGroups: normalizeSkillGroups(profile?.skillGroups),
+    education: normalizeStringArray(profile?.education),
+    certifications: normalizeStringArray(profile?.certifications),
+    industries: normalizeStringArray(profile?.industries),
+    evidence: normalizeStringArray(profile?.evidence),
+    rawCvText: profile?.rawCvText || "",
   };
 }
 
@@ -216,6 +336,7 @@ function extractSkills(text: string) {
 
 function parseCvText(text: string): CvProfile {
   const normalizedText = text.replace(/\s+/g, " ");
+  const skills = extractSkills(normalizedText) || initialFilters.skills;
 
   return {
     role: extractValue(rolePatterns, normalizedText, initialFilters.role),
@@ -228,8 +349,27 @@ function parseCvText(text: string): CvProfile {
           ? "Presencial"
           : initialFilters.workMode,
     seniority: extractValue(seniorityPatterns, normalizedText, initialFilters.seniority),
-    skills: extractSkills(normalizedText) || initialFilters.skills,
+    skills,
     language: extractValue(languagePatterns, normalizedText, initialFilters.language),
+    headline: text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 8 && line.length < 120) || "",
+    summary: normalizedText.slice(0, 700),
+    totalYears: null,
+    currentRole: "",
+    targetRole: extractValue(rolePatterns, normalizedText, initialFilters.role),
+    experiences: [],
+    skillGroups: emptySkillGroups,
+    education: [],
+    certifications: [],
+    industries: [],
+    evidence: text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 20),
+    rawCvText: text.slice(0, 20000),
   };
 }
 
@@ -530,6 +670,18 @@ export default function Home() {
       seniority: confirmedProfile.seniority,
       skills: confirmedProfile.skills,
       language: confirmedProfile.language,
+      headline: confirmedProfile.headline,
+      summary: confirmedProfile.summary,
+      totalYears: confirmedProfile.totalYears,
+      currentRole: confirmedProfile.currentRole,
+      targetRole: confirmedProfile.targetRole,
+      experiences: confirmedProfile.experiences,
+      skillGroups: confirmedProfile.skillGroups,
+      education: confirmedProfile.education,
+      certifications: confirmedProfile.certifications,
+      industries: confirmedProfile.industries,
+      evidence: confirmedProfile.evidence,
+      rawCvText: confirmedProfile.rawCvText,
     };
 
     try {
@@ -942,6 +1094,20 @@ export default function Home() {
                   >
                     Copiar perfil
                   </button>
+                </div>
+                <div className="mt-4 grid gap-2 text-xs text-slate-300 sm:grid-cols-4">
+                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    {confirmedProfile.experiences?.length || 0} experiencias
+                  </span>
+                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    {confirmedProfile.evidence?.length || 0} evidencias CV
+                  </span>
+                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    {confirmedProfile.certifications?.length || 0} certificaciones
+                  </span>
+                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    {confirmedProfile.rawCvText?.length || 0} caracteres
+                  </span>
                 </div>
               </div>
             </div>

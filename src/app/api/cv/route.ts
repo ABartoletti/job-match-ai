@@ -83,7 +83,34 @@ const skillDictionary = [
   "CSS",
   "Tailwind",
   "Next.js",
+  "API Testing",
+  "Postman",
+  "Jenkins",
+  "CI/CD",
+  "Microservices",
+  "Unix",
+  "Linux",
+  "Manual Testing",
+  "Regression Testing",
+  "Test Automation",
+  "REST API",
+  "Agile",
 ];
+
+type CvExperience = {
+  title: string;
+  company: string;
+  period: string;
+  description: string;
+};
+
+type CvSkillGroups = {
+  technical: string[];
+  tools: string[];
+  testing: string[];
+  languages: string[];
+  methodologies: string[];
+};
 
 type CvProfile = {
   role: string;
@@ -92,6 +119,18 @@ type CvProfile = {
   seniority: string;
   skills: string;
   language: string;
+  headline?: string;
+  summary?: string;
+  totalYears?: number | null;
+  currentRole?: string;
+  targetRole?: string;
+  experiences?: CvExperience[];
+  skillGroups?: CvSkillGroups;
+  education?: string[];
+  certifications?: string[];
+  industries?: string[];
+  evidence?: string[];
+  rawCvText?: string;
 };
 
 type CvAnalysisResult = {
@@ -121,16 +160,130 @@ function extractSkills(text: string) {
   return "";
 }
 
+function parseSkills(skills: string) {
+  return skills
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+}
+
+function uniqueValues(values: string[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const clean = value.trim();
+    const key = clean.toLowerCase();
+
+    if (!clean || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function getLines(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function extractSection(lines: string[], headings: RegExp[]) {
+  const startIndex = lines.findIndex((line) => headings.some((heading) => heading.test(line)));
+
+  if (startIndex === -1) {
+    return [];
+  }
+
+  const nextHeadingIndex = lines.findIndex((line, index) => {
+    return (
+      index > startIndex &&
+      /^(experiencia|experience|educaci[oó]n|education|skills|habilidades|certificaciones|certifications|proyectos|projects|idiomas|languages)\b/i.test(line)
+    );
+  });
+
+  return lines.slice(startIndex + 1, nextHeadingIndex === -1 ? startIndex + 9 : nextHeadingIndex).slice(0, 12);
+}
+
+function extractExperience(lines: string[]): CvExperience[] {
+  const experienceLines = extractSection(lines, [/^experiencia/i, /^experience/i, /^work experience/i]);
+  const sourceLines = experienceLines.length ? experienceLines : lines;
+  const roleLinePattern = /(qa|quality assurance|sdet|tester|developer|engineer|analyst|manager|consultant|automation)/i;
+  const periodPattern = /(\b(19|20)\d{2}\b|present|actualidad|current|ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic|jan|feb|mar|apr|aug|dec)/i;
+
+  return sourceLines
+    .filter((line) => roleLinePattern.test(line))
+    .slice(0, 5)
+    .map((line, index) => {
+      const [titlePart, companyPart = ""] = line.split(/\s[-|@]\s/);
+
+      return {
+        title: titlePart.trim(),
+        company: companyPart.trim(),
+        period: periodPattern.test(line) ? line.match(periodPattern)?.[0] || "" : "",
+        description: sourceLines.slice(index + 1, index + 4).join(" "),
+      };
+    });
+}
+
+function extractListSection(lines: string[], headings: RegExp[]) {
+  return extractSection(lines, headings)
+    .flatMap((line) => line.split(/[,;|•]/))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 1)
+    .slice(0, 12);
+}
+
+function categorizeSkills(skills: string[]): CvSkillGroups {
+  const testing = ["Selenium", "Cypress", "Playwright", "API Testing", "Manual Testing", "Regression Testing", "Test Automation", "Postman"];
+  const tools = ["Jira", "Git", "GitHub", "Jenkins", "Docker", "Kubernetes", "AWS", "Azure", "GCP", "Figma"];
+  const languages = ["Python", "JavaScript", "TypeScript", "SQL", "HTML", "CSS"];
+  const methodologies = ["Scrum", "Agile", "Kanban", "CI/CD"];
+
+  return {
+    technical: skills.filter((skill) => ![...testing, ...tools, ...languages, ...methodologies].includes(skill)),
+    tools: skills.filter((skill) => tools.includes(skill)),
+    testing: skills.filter((skill) => testing.includes(skill)),
+    languages: skills.filter((skill) => languages.includes(skill)),
+    methodologies: skills.filter((skill) => methodologies.includes(skill)),
+  };
+}
+
+function detectTotalYears(text: string) {
+  const matches = Array.from(text.matchAll(/(\d+)\+?\s*(?:years|años|anos|yrs)/gi));
+  const values = matches.map((match) => Number.parseInt(match[1], 10)).filter((value) => Number.isFinite(value));
+  return values.length ? Math.max(...values) : null;
+}
+
 function parseCvText(text: string): CvProfile {
   const normalizedText = text.replace(/\s+/g, " ");
+  const lines = getLines(text);
+  const skills = uniqueValues(parseSkills(extractSkills(normalizedText)));
+  const experiences = extractExperience(lines);
+  const education = extractListSection(lines, [/^educaci[oó]n/i, /^education/i]);
+  const certifications = extractListSection(lines, [/^certificaciones/i, /^certifications/i, /^certificates/i]);
+  const headline = lines.find((line) => line.length > 8 && line.length < 120) || "";
 
   return {
     role: extractValue(rolePatterns, normalizedText, ""),
     location: extractValue(locationPatterns, normalizedText, ""),
     workMode: extractValue(workModePatterns, normalizedText, "Cualquiera"),
     seniority: extractValue(seniorityPatterns, normalizedText, ""),
-    skills: extractSkills(normalizedText),
+    skills: skills.join(", "),
     language: extractValue(languagePatterns, normalizedText, "No especificado"),
+    headline,
+    summary: lines.slice(0, 5).join(" ").slice(0, 700),
+    totalYears: detectTotalYears(normalizedText),
+    currentRole: experiences[0]?.title || "",
+    targetRole: extractValue(rolePatterns, normalizedText, ""),
+    experiences,
+    skillGroups: categorizeSkills(skills),
+    education,
+    certifications,
+    industries: [],
+    evidence: lines.slice(0, 20),
+    rawCvText: clampText(text, 20000),
   };
 }
 
@@ -227,15 +380,72 @@ function buildAnalysisPrompt(cvText: string) {
     "- Si el CV sugiere un rol dominante, usa ese rol.",
     "- Si la ubicación no aparece clara, deja location vacío.",
     "- Si el idioma no aparece claro, usa No especificado.",
+    "- AdemÃ¡s de los campos base, extrae headline, summary, totalYears, currentRole, targetRole, experiences, skillGroups, education, certifications, industries y evidence si aparecen.",
+    "- experiences debe usar solo experiencias reales presentes en el CV. No inventes empresas, skills ni fechas.",
+    "- evidence debe incluir frases breves del CV que justifiquen rol, seniority, skills, herramientas o idiomas.",
     "CV:",
     cvText,
   ].join("\n");
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return uniqueValues(
+    value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean),
+  ).slice(0, 20);
+}
+
+function normalizeExperiences(value: unknown): CvExperience[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const entry = item as Partial<CvExperience>;
+
+      return {
+        title: typeof entry.title === "string" ? entry.title.trim() : "",
+        company: typeof entry.company === "string" ? entry.company.trim() : "",
+        period: typeof entry.period === "string" ? entry.period.trim() : "",
+        description: typeof entry.description === "string" ? entry.description.trim() : "",
+      };
+    })
+    .filter((item): item is CvExperience => Boolean(item && (item.title || item.company || item.description)))
+    .slice(0, 6);
+}
+
+function normalizeSkillGroups(value: unknown, fallbackSkills: string[]): CvSkillGroups {
+  if (!value || typeof value !== "object") {
+    return categorizeSkills(fallbackSkills);
+  }
+
+  const groups = value as Partial<Record<keyof CvSkillGroups, unknown>>;
+
+  return {
+    technical: normalizeStringArray(groups.technical),
+    tools: normalizeStringArray(groups.tools),
+    testing: normalizeStringArray(groups.testing),
+    languages: normalizeStringArray(groups.languages),
+    methodologies: normalizeStringArray(groups.methodologies),
+  };
 }
 
 function normalizeOpenAiProfile(value: Partial<CvProfile> | null | undefined): CvProfile | null {
   if (!value) {
     return null;
   }
+
+  const skills = uniqueValues(parseSkills(typeof value.skills === "string" ? value.skills : ""));
 
   const profile: CvProfile = {
     role: typeof value.role === "string" && value.role.trim() ? value.role.trim() : "",
@@ -245,11 +455,22 @@ function normalizeOpenAiProfile(value: Partial<CvProfile> | null | undefined): C
       typeof value.workMode === "string" && value.workMode.trim() ? value.workMode.trim() : "",
     seniority:
       typeof value.seniority === "string" && value.seniority.trim() ? value.seniority.trim() : "",
-    skills: typeof value.skills === "string" && value.skills.trim() ? value.skills.trim() : "",
+    skills: skills.join(", "),
     language:
       typeof value.language === "string" && value.language.trim()
         ? value.language.trim()
         : "No especificado",
+    headline: typeof value.headline === "string" ? value.headline.trim() : "",
+    summary: typeof value.summary === "string" ? value.summary.trim().slice(0, 900) : "",
+    totalYears: typeof value.totalYears === "number" && Number.isFinite(value.totalYears) ? value.totalYears : null,
+    currentRole: typeof value.currentRole === "string" ? value.currentRole.trim() : "",
+    targetRole: typeof value.targetRole === "string" ? value.targetRole.trim() : "",
+    experiences: normalizeExperiences(value.experiences),
+    skillGroups: normalizeSkillGroups(value.skillGroups, skills),
+    education: normalizeStringArray(value.education),
+    certifications: normalizeStringArray(value.certifications),
+    industries: normalizeStringArray(value.industries),
+    evidence: normalizeStringArray(value.evidence),
   };
 
   if (!profile.role && !profile.location && !profile.seniority && !profile.skills && profile.language === "No especificado") {
@@ -257,6 +478,31 @@ function normalizeOpenAiProfile(value: Partial<CvProfile> | null | undefined): C
   }
 
   return profile;
+}
+
+function mergeProfiles(primary: CvProfile, fallback: CvProfile): CvProfile {
+  return {
+    ...fallback,
+    ...primary,
+    role: primary.role || fallback.role,
+    location: primary.location || fallback.location,
+    workMode: primary.workMode || fallback.workMode,
+    seniority: primary.seniority || fallback.seniority,
+    skills: primary.skills || fallback.skills,
+    language: primary.language !== "No especificado" ? primary.language : fallback.language,
+    headline: primary.headline || fallback.headline,
+    summary: primary.summary || fallback.summary,
+    totalYears: primary.totalYears ?? fallback.totalYears ?? null,
+    currentRole: primary.currentRole || fallback.currentRole,
+    targetRole: primary.targetRole || fallback.targetRole,
+    experiences: primary.experiences?.length ? primary.experiences : fallback.experiences,
+    skillGroups: primary.skillGroups || fallback.skillGroups,
+    education: primary.education?.length ? primary.education : fallback.education,
+    certifications: primary.certifications?.length ? primary.certifications : fallback.certifications,
+    industries: primary.industries?.length ? primary.industries : fallback.industries,
+    evidence: primary.evidence?.length ? primary.evidence : fallback.evidence,
+    rawCvText: fallback.rawCvText,
+  };
 }
 
 async function analyzeCvWithOpenAI(cvText: string): Promise<CvProfile | null> {
@@ -355,10 +601,11 @@ export async function POST(request: Request) {
   const fileName = file.name || "cv.txt";
   const buffer = Buffer.from(await file.arrayBuffer());
   const text = await extractTextFromBuffer(fileName, buffer);
+  const heuristicProfile = parseCvText(text);
   const openAiProfile = await analyzeCvWithOpenAI(text);
   const result: CvAnalysisResult = openAiProfile
-    ? { profile: openAiProfile, source: "openai" }
-    : { profile: parseCvText(text), source: "heuristic" };
+    ? { profile: mergeProfiles(openAiProfile, heuristicProfile), source: "openai" }
+    : { profile: heuristicProfile, source: "heuristic" };
 
   return NextResponse.json({
     fileName,

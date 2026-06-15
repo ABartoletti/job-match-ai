@@ -8,7 +8,11 @@
     "default_title": "Analizar puesto visible"
   },
   "permissions": ["activeTab", "storage"],
-  "host_permissions": ["https://www.linkedin.com/*", "http://localhost:3000/*"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "http://localhost:3000/*",
+    "https://job-match-ai-rho.vercel.app/*"
+  ],
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/jobs/*"],

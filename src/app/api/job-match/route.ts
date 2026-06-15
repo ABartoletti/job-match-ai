@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "OPTIONS, POST",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 type ProfilePayload = {
   role?: string;
   location?: string;
@@ -855,6 +861,10 @@ async function openAiMatch(profile: ProfilePayload, job: JobPayload): Promise<Ma
   }
 }
 
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 export async function POST(request: Request) {
   const body = (await request.json()) as MatchRequest;
   const profile = body.profile || {};
@@ -867,5 +877,5 @@ export async function POST(request: Request) {
   const aiResult = await openAiMatch(profile, job);
   const result = aiResult || heuristicMatch(profile, job);
 
-  return NextResponse.json(result);
+  return NextResponse.json(result, { headers: corsHeaders });
 }

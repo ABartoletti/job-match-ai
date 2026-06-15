@@ -10,6 +10,10 @@ function setStatus(message) {
   statusBox.textContent = message;
 }
 
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function renderRequirementList(title, requirements) {
   if (!requirements?.length) return "";
 
@@ -120,7 +124,8 @@ async function saveProfile() {
 
     await chrome.storage.local.set({ profile, apiBase });
     setStatus("Perfil guardado. Ya podés analizar un puesto visible.");
-  } catch {
+  } catch (error) {
+    console.error("JOB CAPTURE ERROR:", error);
     setStatus("El perfil no es JSON válido. Copialo de nuevo desde la app.");
   }
 }
@@ -146,7 +151,10 @@ async function analyzeVisibleJob() {
   let extracted;
   try {
     extracted = await extractVisibleJob(tab.id);
-  } catch {
+  } catch (error) {
+    console.error("JOB CAPTURE ERROR:", error);
+    setStatus(`Error: ${getErrorMessage(error)}`);
+    setTimeout(() => setStatus(`Error: ${getErrorMessage(error)}`), 0);
     setStatus("No pude leer la página. Recargá LinkedIn y probá otra vez.");
     return;
   }
@@ -169,13 +177,17 @@ async function analyzeVisibleJob() {
     });
 
     if (!response.ok) {
-      throw new Error("Request failed");
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
     }
 
     const result = await response.json();
     setStatus("Análisis listo.");
     renderResult(result, job);
-  } catch {
+  } catch (error) {
+    console.error("JOB MATCH ERROR:", error);
+    setStatus(`Error: ${getErrorMessage(error)}`);
+    setTimeout(() => setStatus(`Error: ${getErrorMessage(error)}`), 0);
     setStatus("No pude conectar con la app. Verificá que esté corriendo en la URL configurada.");
   }
 }
